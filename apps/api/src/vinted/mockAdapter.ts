@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { env } from "../config/env.js";
 import type {
   ListingDraft, RemoteFavourite, RemoteListing, RemoteMessage, RemoteSale,
@@ -24,6 +26,26 @@ interface MockAccount {
 const accounts = new Map<string, MockAccount>();
 let seq = 1000;
 const nextId = () => String(++seq);
+
+// Persist the simulated Vinted state next to the database so restarts don't
+// "re-seed" accounts (which would look like new listings to the sync).
+const STATE_FILE = env.databasePath === ":memory:" ? null : path.join(path.dirname(env.databasePath), "mock-vinted.json");
+function load() {
+  if (!STATE_FILE || !fs.existsSync(STATE_FILE)) return;
+  try {
+    const data = JSON.parse(fs.readFileSync(STATE_FILE, "utf8")) as { seq: number; accounts: MockAccount[] };
+    seq = data.seq;
+    for (const a of data.accounts) accounts.set(a.userId, a);
+  } catch (e) {
+    console.warn("[mock] Zustand konnte nicht geladen werden:", (e as Error).message);
+  }
+}
+function save() {
+  if (!STATE_FILE) return;
+  fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ seq, accounts: [...accounts.values()] }));
+}
+load();
 
 const BUYERS = ["lena_mode", "tom.vintage", "sarah_k", "mia.secondhand", "jonas92", "anna_loves_denim"];
 const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)]!;
@@ -65,6 +87,7 @@ function ensure(s: VintedSession): MockAccount {
       });
     }
     accounts.set(id, acc);
+    save();
   }
   if (env.mockRandomEvents) randomTick(acc);
   return acc;
@@ -90,16 +113,19 @@ export function mockInject(userId: string, type: "sale" | "favourite" | "message
     if (!listing) throw new VintedError("Keine aktiven Listings zum Verkaufen", "remote");
     listing.status = "sold";
     acc.sales.push({ externalId: nextId(), vintedItemId: listing.vintedItemId, title: listing.title, priceCents: listing.priceCents, currency: listing.currency, buyer, soldAt: now });
+    save();
     return `Verkauf: ${listing.title}`;
   }
   if (type === "favourite") {
     if (!listing) throw new VintedError("Keine aktiven Listings", "remote");
     listing.favourites += 1;
     acc.favourites.push({ externalId: nextId(), vintedItemId: listing.vintedItemId, userId: `u-${buyer}`, username: buyer, occurredAt: now });
+    save();
     return `${buyer} hat ${listing.title} favorisiert`;
   }
   const text = opts.text ?? pick(["Hallo, ist der Artikel noch da?", "Wie sind die genauen Maße?", "Geht noch was am Preis?", "Versendest du auch mit Hermes?"]);
   acc.messages.push({ externalId: nextId(), conversationId: `c-${buyer}`, userId: `u-${buyer}`, username: buyer, text, vintedItemId: listing?.vintedItemId ?? null, occurredAt: now });
+  save();
   return `Nachricht von ${buyer}: ${text}`;
 }
 
@@ -138,6 +164,7 @@ export const mockAdapter: VintedAdapter = {
   },
   async sendMessage(s, input) {
     ensure(s).sentMessages.push({ ...input, at: new Date().toISOString() });
+    save();
   },
   async createListing(s, draft: ListingDraft) {
     const acc = ensure(s);
@@ -148,11 +175,13 @@ export const mockAdapter: VintedAdapter = {
       currency: draft.currency, brand: draft.brand, size: draft.size, condition: draft.condition, category: draft.category,
       status: "active", favourites: 0, views: 0, url, photoUrls: [], createdAt: new Date().toISOString(),
     });
+    save();
     return { vintedItemId: vid, url };
   },
   async updatePrice(s, vintedItemId, priceCents) {
     const l = ensure(s).listings.find((x) => x.vintedItemId === vintedItemId);
     if (!l) throw new VintedError("Listing nicht gefunden", "remote");
     l.priceCents = priceCents;
+    save();
   },
 };

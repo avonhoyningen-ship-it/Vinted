@@ -55,6 +55,7 @@ systemRouter.post("/simulate", h(async (req, res) => {
   const { accountId, type, text } = z.object({
     accountId: z.number().int().positive(), type: z.enum(["sale", "favourite", "message"]), text: z.string().max(500).optional(),
   }).parse(req.body);
+  await syncAccount(accountId); // makes sure the mock knows this account
   const account = getAccount(accountId);
   if (!account.vinted_user_id) throw new HttpError(400, "Account wurde noch nicht synchronisiert");
   const description = mockInject(account.vinted_user_id, type, { text });
