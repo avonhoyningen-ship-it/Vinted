@@ -1,0 +1,41 @@
+# Production setup: Caddy (HTTPS) → web (Next.js) + api (Express/SQLite).
+# Start: docker compose up -d --build   (see DEPLOY.md)
+services:
+  api:
+    build: { context: ., target: api }
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: "true"
+      DATABASE_PATH: /app/data/vinted.db
+      STORAGE_DIR: /app/data/uploads
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        API_INTERNAL_URL: http://api:4000
+    depends_on: [api]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN in .env setzen, z. B. dashboard.meine-domain.de}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [web, api]
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

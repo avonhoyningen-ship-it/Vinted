@@ -1,31 +1,31 @@
 import cors from "cors";
 import express from "express";
 import { env } from "./config/env.js";
+import { requireAuth } from "./lib/auth.js";
 import { errorHandler } from "./lib/http.js";
 import { accountsRouter } from "./modules/accounts/routes.js";
 import { archiveRouter } from "./modules/archive/routes.js";
 import { automationsRouter } from "./modules/automations/routes.js";
 import { listingsRouter } from "./modules/listings/routes.js";
 import { statsRouter } from "./modules/stats/routes.js";
+import { authRouter } from "./modules/system/authRoutes.js";
 import { systemRouter } from "./modules/system/routes.js";
 
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
-  app.use(cors({ origin: env.corsOrigin.split(",").map((s) => s.trim()) }));
+  if (env.trustProxy) app.set("trust proxy", 1);
+  app.use(cors({ origin: env.corsOrigin.split(",").map((s) => s.trim()), credentials: true }));
   app.use(express.json({ limit: "2mb" }));
+  app.use((_req, res, next) => {
+    res.setHeader("x-content-type-options", "nosniff");
+    res.setHeader("referrer-policy", "same-origin");
+    next();
+  });
 
-  // Optional bearer token for deployments on a shared server. EventSource and
-  // <img> can't send headers, so ?token= is accepted as well.
-  if (env.apiToken) {
-    app.use("/api", (req, res, next) => {
-      if (req.path === "/health") return next();
-      const header = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-      if (header === env.apiToken || req.query.token === env.apiToken) return next();
-      res.status(401).json({ error: "Unauthorized" });
-    });
-  }
-
+  // Login (cookie session) or bearer API_TOKEN; open only if neither is configured.
+  app.use("/api/auth", authRouter);
+  app.use("/api", requireAuth);
   app.use("/api", systemRouter);
   app.use("/api/accounts", accountsRouter);
   app.use("/api/listings", listingsRouter);

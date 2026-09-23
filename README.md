@@ -17,7 +17,12 @@ npm run setup        # erstellt .env mit zufälligem ENCRYPTION_KEY
 npm run dev          # API auf :4000, Dashboard auf http://localhost:3000
 ```
 
-Produktion: `npm run build && npm start`. Tests: `npm test`.
+`npm run setup` erzeugt auch ein **Login-Passwort** und zeigt es an (änderbar in `.env` unter `DASHBOARD_PASSWORD`).
+
+Produktion lokal: `npm run build && npm start`. Tests: `npm test`.
+
+**Online von überall (iPhone, iPad, unterwegs):** siehe **[DEPLOY.md](DEPLOY.md)** – eigener Server mit
+Docker, automatischem HTTPS (Caddy) und Passwort-Login.
 
 Standardmäßig läuft das Dashboard im **Simulationsmodus** (`VINTED_MODE=mock`): Beliebiges Token ≥ 8 Zeichen
 eingeben → der Account wird mit drei Beispiel-Listings „verbunden“. Auf der Account-Detailseite lassen sich
@@ -72,7 +77,8 @@ Listing-Verlauf abgeleitet und kann daher nicht auseinanderlaufen.
 
 ### REST-API
 
-Alle Endpunkte unter `/api`, JSON. Mit gesetztem `API_TOKEN` ist `Authorization: Bearer <token>` nötig.
+Alle Endpunkte unter `/api`, JSON. Anmeldung per `POST /api/auth/login` (Session-Cookie) oder – für Skripte
+und eine spätere Mobile-App – per `Authorization: Bearer <API_TOKEN>`.
 Wichtigste Endpunkte: `GET/POST /accounts`, `POST /accounts/:id/sync`, `GET /archive`, `GET/PATCH /archive/:id`,
 `POST /archive/:id/photos`, `POST /archive/:id/reupload`, `POST /listings/drafts`, `POST /listings/drafts/:id/ai`,
 `GET/POST /listings/queue`, `GET/POST/PUT /automations/rules`, `GET /stats/overview|timeseries|top`,
@@ -136,4 +142,5 @@ aber keine Aktionen ausgelöst.
 ## Mobile App (später)
 
 Das Backend ist eine eigenständige REST-API ohne Abhängigkeit vom Next.js-Frontend. Eine React-Native- oder
-Flutter-App kann dieselben Endpunkte nutzen (Auth über `API_TOKEN`, Live-Events über `/api/events/stream`).
+Flutter-App kann dieselben Endpunkte nutzen (Auth über Login-Cookie oder `API_TOKEN`, Live-Events über
+`/api/events/stream`). Bis dahin lässt sich das Dashboard auf iOS über „Zum Home-Bildschirm“ wie eine App nutzen.

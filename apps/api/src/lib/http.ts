@@ -1,4 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import multer from "multer";
 import { ZodError } from "zod";
 
 export class HttpError extends Error {
@@ -25,6 +26,13 @@ export function idParam(req: Request, name = "id"): number {
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof ZodError) {
     return res.status(400).json({ error: "Validation failed", details: err.issues });
+  }
+  if (err instanceof multer.MulterError) {
+    const messages: Record<string, string> = {
+      LIMIT_FILE_SIZE: "Foto zu groß (max. 25 MB pro Datei)",
+      LIMIT_FILE_COUNT: "Zu viele Fotos (max. 20 pro Upload)",
+    };
+    return res.status(413).json({ error: messages[err.code] ?? err.message });
   }
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details });

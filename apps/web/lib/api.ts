@@ -1,5 +1,9 @@
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").replace(/\/$/, "");
-const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN || "";
+/**
+ * By default the browser talks to the API on the same origin (/api/...):
+ * Next.js rewrites it to the API in development, Caddy routes it in
+ * production. Set NEXT_PUBLIC_API_URL only to reach an API on another host.
+ */
+export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public details?: unknown) {
@@ -9,13 +13,15 @@ export class ApiError extends Error {
 
 export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const headers = new Headers(init.headers);
-  if (TOKEN) headers.set("authorization", `Bearer ${TOKEN}`);
   let body = init.body;
   if (init.json !== undefined) {
     headers.set("content-type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(`${API_URL}/api${path}`, { ...init, headers, body });
+  const res = await fetch(`${API_URL}/api${path}`, { ...init, headers, body, credentials: "include" });
+  if (res.status === 401 && !path.startsWith("/auth/") && typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -26,12 +32,8 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
   return data as T;
 }
 
-export function withToken(url: string) {
-  return TOKEN ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(TOKEN)}` : url;
-}
-
-export const photoUrl = (file: string | null | undefined) => (file ? withToken(`${API_URL}/api/photos/${file}`) : null);
-export const eventStreamUrl = () => withToken(`${API_URL}/api/events/stream`);
+export const photoUrl = (file: string | null | undefined) => (file ? `${API_URL}/api/photos/${file}` : null);
+export const eventStreamUrl = () => `${API_URL}/api/events/stream`;
 
 export function euro(cents: number | null | undefined, currency = "EUR") {
   if (cents === null || cents === undefined) return "–";

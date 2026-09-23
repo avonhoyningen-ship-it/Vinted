@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 
 const LINKS = [
@@ -16,6 +17,8 @@ const LINKS = [
 export function Nav() {
   const path = usePathname();
   const { data: info } = useApi<{ vintedMode: string; aiEnabled: boolean }>("/info");
+  const { data: me } = useApi<{ authRequired: boolean }>("/auth/me");
+  const logout = () => api("/auth/logout", { method: "POST" }).then(() => { window.location.href = "/login"; });
   return (
     <nav className="sidebar">
       <div className="brand"><span className="brand-dot" /> Vinted Dashboard</div>
@@ -36,6 +39,7 @@ export function Nav() {
         ) : (
           <span>API nicht erreichbar</span>
         )}
+        {me?.authRequired && <button className="btn small" style={{ marginTop: 6 }} onClick={logout}>Abmelden</button>}
       </div>
     </nav>
   );

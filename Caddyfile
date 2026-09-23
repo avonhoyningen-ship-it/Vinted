@@ -1,0 +1,24 @@
+# Caddy fetches and renews a free HTTPS certificate (Let's Encrypt) for DOMAIN.
+{$DOMAIN} {
+	request_body {
+		max_size 300MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	# API incl. live event stream (Caddy flushes text/event-stream immediately).
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy web:3000
+	}
+}

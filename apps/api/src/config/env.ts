@@ -27,7 +27,14 @@ function resolvePath(p: string): string {
 export const env = {
   port: int("API_PORT", 4000),
   corsOrigin: str("CORS_ORIGIN", "http://localhost:3000"),
+  /** Bearer token for scripts / a future mobile app (never shipped to the browser). */
   apiToken: process.env.API_TOKEN || null,
+  /** Password for the web login. Required when NODE_ENV=production. */
+  dashboardPassword: process.env.DASHBOARD_PASSWORD || null,
+  /** Set when running behind a reverse proxy (Caddy) so client IPs / HTTPS are detected. */
+  trustProxy: process.env.TRUST_PROXY === "true",
+  sessionDays: int("SESSION_DAYS", 30, 1),
+  isProduction: process.env.NODE_ENV === "production",
   databasePath: resolvePath(str("DATABASE_PATH", "./data/vinted.db")),
   storageDir: resolvePath(str("STORAGE_DIR", "./data/uploads")),
   encryptionKey: str("ENCRYPTION_KEY"),

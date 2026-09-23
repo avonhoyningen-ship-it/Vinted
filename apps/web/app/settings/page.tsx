@@ -85,6 +85,7 @@ export default function SettingsPage() {
               <tr><td>Standard-Veröffentlichungsabstand</td><td>{info.data.publishIntervalMinutes} Minuten</td></tr>
             </tbody></table>
             <div className="small muted">Diese Werte werden in der Datei <code>.env</code> konfiguriert.</div>
+            <div className="row"><button className="btn" onClick={() => api("/auth/logout", { method: "POST" }).then(() => { window.location.href = "/login"; })}>Abmelden</button></div>
           </div>
         )}
       </div>

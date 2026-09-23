@@ -23,7 +23,7 @@ export function SaleNotifier() {
     void load();
     window.addEventListener("settings-changed", load);
 
-    const es = new EventSource(eventStreamUrl());
+    const es = new EventSource(eventStreamUrl(), { withCredentials: true });
     es.addEventListener("sale", (ev) => {
       const e = JSON.parse((ev as MessageEvent).data);
       const s = settings.current;
