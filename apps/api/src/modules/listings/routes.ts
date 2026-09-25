@@ -8,7 +8,7 @@ import { photoPath, rotateStoredPhoto, storePhoto } from "../../storage/photos.j
 import fs from "node:fs";
 import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
 import { confirmPrice, examplesForPrompt, refreshSuggestion } from "../pricing/engine.js";
-import { ruleBrand } from "./brandRules.js";
+import { ruleBrand, ruleParcel } from "./brandRules.js";
 import { aiEnabled, composeDescription, detectOrientations, generateListing, groupingThumb, groupPhotosInOrder, normalizeOrder, type Rotation } from "./ai.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
@@ -100,6 +100,7 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
       condition: keep.condition ?? s.condition,
       color: keep.color ?? s.color,
       material: keep.material ?? s.material,
+      parcel_size: keep.parcel_size ?? ruleParcel({ title: s.title, category: s.category, description }) ?? s.parcel_size,
     });
     if (keep.price_cents) confirmPrice(itemId, keep.price_cents, "manual");
   }

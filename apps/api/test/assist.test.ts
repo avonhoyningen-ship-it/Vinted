@@ -31,7 +31,7 @@ const SELL_PAGE = `<!doctype html><html><body>
   <label class="parcel"><input type="radio" name="pkg" value="m"><span>Mittel</span><small>Für Artikel, die in einen Schuhkarton passen.</small></label>
   <label class="parcel"><input type="radio" name="pkg" value="l"><span>Groß</span><small>Für Artikel, die in einen Umzugskarton passen.</small></label>
   <div id="panel" style="display:none"></div>
-  <button id="upload" onclick="location.href='/items/5550001-sakura-tee'">Hochladen</button>
+  <button id="upload" onclick="location.href='/items/' + (5550000 + t.value.length) + '-item'">Hochladen</button>
   <script>
     const trees = {
       cat: { "Damen": { "Kleidung": ["Kleider"] }, "Herren": { "Kleidung": { "T-Shirts": ["Einfarbige T-Shirts", "Bedruckte T-Shirts"] } } },
@@ -158,11 +158,52 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       const s = (await request(app).get("/api/assist/status")).body;
       return s.done.length === 1 && s;
     });
-    expect(done.done[0]).toMatchObject({ itemId: draft.id, url: `${base}/items/5550001-sakura-tee` });
+    expect(done.done[0]).toMatchObject({ itemId: draft.id, url: `${base}/items/5550010-item` });
     const detail = (await request(app).get(`/api/archive/${draft.id}`)).body;
     expect(detail.item.status).toBe("active");
-    expect(detail.listings[0]).toMatchObject({ vinted_item_id: "5550001", price_cents: 2450 });
+    expect(detail.listings[0]).toMatchObject({ vinted_item_id: "5550010", price_cents: 2450 });
     await b.close();
   }, 60_000);
+
+  it("prepares several items in their own tabs; each upload is linked separately", async () => {
+    const { db } = await import("../src/db/index.js");
+    const acc = Number(db.prepare("INSERT INTO accounts (name, domain, status) VALUES ('Vinted 2', 'vinted.de', 'connected')").run().lastInsertRowid);
+    const photo = (c: string) => sharp({ create: { width: 40, height: 50, channels: 3, background: c } }).jpeg().toBuffer();
+    const make = async (data: object) => (await request(app).post("/api/listings/drafts")
+      .attach("photos", await photo("#33a"), "1.jpg").field("data", JSON.stringify(data))).body.item;
+    const tee = await make({ title: "Anime Print Tee", price_cents: 2000, size: "M", category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" });
+    const hoodie = await make({ title: "Vintage College Hoodie grau", price_cents: 3500, size: "L" });
+
+    expect((await request(app).post("/api/assist/start").send({ itemIds: [tee.id, hoodie.id], accountId: acc })).status).toBe(200);
+    const ready = await waitFor(async () => {
+      const s = (await request(app).get("/api/assist/status")).body;
+      return s.state === "waiting" && s.tabs.every((t: { state: string }) => t.state === "ready") && s;
+    }, 60_000);
+    expect(ready.tabs.map((t: { itemId: number }) => t.itemId)).toEqual([tee.id, hoodie.id]);
+    expect(ready.tabs[0].filled).toContain("Paketgröße Klein");
+    expect(ready.tabs[1].filled).toContain("Paketgröße Mittel");
+
+    const b = await chromium.connectOverCDP(process.env.CHROME_DEBUG_URL!);
+    const open = async () => {
+      const pages = b.contexts()[0]!.pages().filter((p) => p.url().includes("/items/new"));
+      const out: Record<string, import("playwright-core").Page> = {};
+      for (const p of pages) out[await p.inputValue("#t")] = p;
+      return out;
+    };
+    const tabs = await open();
+    expect(await tabs["Vintage College Hoodie grau"]!.locator("input[name=pkg]:checked").getAttribute("value")).toBe("m");
+    // Upload the second one first – order doesn't matter.
+    await tabs["Vintage College Hoodie grau"]!.click("#upload");
+    await tabs["Anime Print Tee"]!.click("#upload");
+    const done = await waitFor(async () => {
+      const s = (await request(app).get("/api/assist/status")).body;
+      return s.done.length === 2 && s;
+    });
+    expect(done.state).toBe("idle");
+    expect(done.tabs.map((t: { state: string }) => t.state)).toEqual(["done", "done"]);
+    expect((await request(app).get(`/api/archive/${tee.id}`)).body.item.status).toBe("active");
+    expect((await request(app).get(`/api/archive/${hoodie.id}`)).body.listings[0].vinted_item_id).toBe(String(5550000 + "Vintage College Hoodie grau".length));
+    await b.close();
+  }, 120_000);
 
 });

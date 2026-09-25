@@ -19,6 +19,7 @@ export interface ItemRow {
   color: string | null;
   material: string | null;
   measurements: string | null;
+  parcel_size: string | null;
   price_cents: number | null;
   currency: string;
   purchase_price_cents: number | null;
@@ -67,6 +68,7 @@ export interface ListingRow {
   updated_at: string;
 }
 
+export const PARCEL_SIZES = ["Klein", "Mittel", "Groß"] as const;
 const nullableText = (max: number) => z.string().trim().max(max).nullable().optional();
 
 export const itemInput = z.object({
@@ -79,6 +81,7 @@ export const itemInput = z.object({
   color: nullableText(60),
   material: nullableText(120),
   measurements: nullableText(500),
+  parcel_size: z.enum(PARCEL_SIZES).nullable().optional(),
   price_cents: z.number().int().min(0).max(10_000_000).nullable().optional(),
   currency: z.string().length(3).default("EUR"),
   purchase_price_cents: z.number().int().min(0).nullable().optional(),
@@ -91,7 +94,7 @@ export type ItemInput = z.infer<typeof itemInput>;
 
 const ITEM_FIELDS = [
   "title", "description", "category", "brand", "size", "condition", "color", "material",
-  "measurements", "price_cents", "currency", "purchase_price_cents", "notes",
+  "measurements", "parcel_size", "price_cents", "currency", "purchase_price_cents", "notes",
 ] as const;
 
 export function getItem(id: number): ItemRow {

@@ -17,8 +17,9 @@ assistRouter.post("/start", h(async (req, res) => {
   res.json(await startAssist(itemIds, accountId));
 }));
 
-assistRouter.post("/skip", (_req, res) => {
-  skipAssist();
+assistRouter.post("/skip", (req, res) => {
+  const itemId = Number(req.body?.itemId);
+  skipAssist(Number.isInteger(itemId) && itemId > 0 ? itemId : undefined);
   res.json(getAssistStatus());
 });
 

@@ -17,6 +17,7 @@ export const ListingSuggestion = z.object({
   condition: z.enum(CONDITIONS),
   color: z.string().nullable().describe("Hauptfarbe mit Vinteds Farbnamen, z. B. Schwarz, Weiß, Grau, Blau, Rot, Grün, Beige, Braun"),
   material: z.string().nullable().describe("Material mit Vinteds Bezeichnung, z. B. Baumwolle, Polyester, Denim, Wolle, Leder – nur wenn erkennbar"),
+  parcel_size: z.enum(["Klein", "Mittel", "Groß"]).describe("Vinted-Paketgröße: Klein = passt in einen großen Umschlag (T-Shirts, Tops, Accessoires), Mittel = Schuhkarton (Pullover, Hoodies, Hosen, Schuhe), Groß = Umzugskarton (Jacken, Mäntel)"),
   suggested_price_eur: z.number().describe("Ambitionierter, aber realistischer Vinted-Preis in EUR"),
   price_reasoning: z.string().describe("Ein Satz Begründung für den Preis"),
   rotations: z.array(z.object({

@@ -32,9 +32,9 @@ export function AssistStartDialog({ itemIds, onClose, onStarted }: { itemIds: nu
         <ErrorBox error={error} />
         <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
           <li>Das Vinted-Chrome muss laufen („Chrome fuer Vinted starten.bat“) und du musst dort bei Vinted eingeloggt sein.</li>
-          <li>Das Dashboard öffnet dort „Artikel verkaufen“, lädt die Fotos hoch und füllt Titel, Beschreibung und Preis aus.</li>
-          <li>Du prüfst, ergänzt Kategorie/Marke/Größe/Zustand falls nötig und klickst auf <strong>„Hochladen“</strong>.</li>
-          <li>Das Dashboard erkennt den neuen Artikel, verknüpft ihn und bereitet den nächsten vor.</li>
+          <li>Das Dashboard öffnet dort für jeden Artikel einen eigenen Tab „Artikel verkaufen“ und füllt Fotos, Titel, Beschreibung, Preis, Kategorie, Marke, Größe, Zustand, Farbe, Maße und Paketgröße aus – einen nach dem anderen, bitte so lange warten.</li>
+          <li>Danach gehst du die Tabs durch, prüfst kurz und klickst jeweils selbst auf <strong>„Hochladen“</strong>.</li>
+          <li>Jeder hochgeladene Artikel wird automatisch verknüpft, sein Tab schließt sich und der nächste kommt nach vorne. Tab schließen = überspringen.</li>
         </ol>
         <label className="field">Account
           <select value={chosen} onChange={(e) => setAccountId(e.target.value)}>

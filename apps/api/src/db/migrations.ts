@@ -319,4 +319,10 @@ UPDATE items SET status = CASE WHEN EXISTS (SELECT 1 FROM listings l WHERE l.ite
   WHERE status = 'queued';
 `,
   },
+  {
+    id: 5,
+    name: "item_parcel_size",
+    // Vinted parcel size ("Klein" / "Mittel" / "Groß"), detected by rules or the AI.
+    sql: `ALTER TABLE items ADD COLUMN parcel_size TEXT;`,
+  },
 ];

@@ -21,6 +21,19 @@ export interface AssistStatus {
   done: { itemId: number; title: string; url: string }[];
   /** Form fields seen on the page when something could not be filled (for troubleshooting). */
   fields: string[];
+  /** One entry per selected item – each gets its own tab in the Vinted-Chrome. */
+  tabs: AssistTab[];
+}
+
+export interface AssistTab {
+  itemId: number;
+  title: string;
+  state: "queued" | "preparing" | "ready" | "done" | "skipped" | "error";
+  filled: string[];
+  missing: string[];
+  message: string | null;
+  url: string | null;
+  fields: string[];
 }
 
 class Bus extends EventEmitter {

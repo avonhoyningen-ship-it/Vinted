@@ -42,7 +42,7 @@ systemRouter.put("/settings", h((req, res) => {
   for (const k of Object.keys(body)) if (!(k in DEFAULT_SETTINGS)) throw new HttpError(400, `Unbekannte Einstellung ${k}`);
   try {
     const saved = setSettings(body);
-    if ("brand.rules" in body) applyBrandRules();
+    if ("brand.rules" in body || "parcel.rules" in body) applyBrandRules();
     res.json(saved);
   } catch (e) {
     throw new HttpError(400, (e as Error).message);

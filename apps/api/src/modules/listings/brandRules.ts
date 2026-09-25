@@ -34,22 +34,33 @@ export function ruleBrand(item: RuleItem, rules = parseRules(getSetting("brand.r
   return matchRule(item, rules);
 }
 
-/** Vinted parcel size for this item ("Klein" / "Mittel" / "Groß"), else null. */
-export function ruleParcel(item: RuleItem, rules = parseRules(getSetting("parcel.rules"))): string | null {
-  return matchRule(item, rules);
+export type ParcelSize = "Klein" | "Mittel" | "Groß";
+/** "klein" / "S" / "mittel" / "gross" … → Vinted's parcel size label, else null. */
+export function parcelSize(v: string | null | undefined): ParcelSize | null {
+  const t = (v ?? "").trim().toLowerCase();
+  if (/^(klein|s|small)$/.test(t)) return "Klein";
+  if (/^(mittel|m|medium)$/.test(t)) return "Mittel";
+  if (/^(gro(ß|ss)|l|large)$/.test(t)) return "Groß";
+  return null;
 }
 
-/** Re-applies the brand rules to every unsold item (drafts, archive, queue); returns how many changed. */
+/** Vinted parcel size for this item by rule (e.g. T-shirts → "Klein"), else null. */
+export function ruleParcel(item: RuleItem, rules = parseRules(getSetting("parcel.rules"))): ParcelSize | null {
+  return parcelSize(matchRule(item, rules));
+}
+
+/** Re-applies brand and parcel rules to every unsold item (drafts, archive, queue); returns how many changed. */
 export function applyBrandRules(): number {
-  const rules = parseRules(getSetting("brand.rules"));
-  if (!rules.length) return 0;
-  const items = db.prepare("SELECT id, title, category, description, brand FROM items WHERE status <> 'sold'").all() as
-    { id: number; title: string; category: string | null; description: string; brand: string | null }[];
-  const update = db.prepare("UPDATE items SET brand = ?, updated_at = ? WHERE id = ?");
+  const brandRules = parseRules(getSetting("brand.rules"));
+  const parcelRules = parseRules(getSetting("parcel.rules"));
+  const items = db.prepare("SELECT id, title, category, description, brand, parcel_size FROM items WHERE status <> 'sold'").all() as
+    { id: number; title: string; category: string | null; description: string; brand: string | null; parcel_size: string | null }[];
+  const update = db.prepare("UPDATE items SET brand = ?, parcel_size = ?, updated_at = ? WHERE id = ?");
   let changed = 0;
   for (const it of items) {
-    const brand = ruleBrand(it, rules);
-    if (brand && brand !== it.brand) { update.run(brand, nowIso(), it.id); changed++; }
+    const brand = ruleBrand(it, brandRules) ?? it.brand;
+    const parcel = ruleParcel(it, parcelRules) ?? it.parcel_size;
+    if (brand !== it.brand || parcel !== it.parcel_size) { update.run(brand, parcel, nowIso(), it.id); changed++; }
   }
   return changed;
 }

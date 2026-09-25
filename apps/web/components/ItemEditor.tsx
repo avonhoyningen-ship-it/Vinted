@@ -8,12 +8,12 @@ import { ErrorBox } from "./ui";
 
 type Form = {
   title: string; description: string; category: string; brand: string; size: string; condition: string;
-  color: string; material: string; measurements: string; price: string; purchase: string; notes: string;
+  color: string; material: string; measurements: string; parcel: string; price: string; purchase: string; notes: string;
 };
 
 const toForm = (i: Item): Form => ({
   title: i.title, description: i.description, category: i.category ?? "", brand: i.brand ?? "", size: i.size ?? "",
-  condition: i.condition ?? "", color: i.color ?? "", material: i.material ?? "", measurements: i.measurements ?? "",
+  condition: i.condition ?? "", color: i.color ?? "", material: i.material ?? "", measurements: i.measurements ?? "", parcel: i.parcel_size ?? "",
   price: centsToInput(i.price_cents), purchase: centsToInput(i.purchase_price_cents), notes: i.notes ?? "",
 });
 
@@ -40,7 +40,7 @@ export function ItemEditor({ item, onSaved, aiEnabled, onPhotosChanged }: { item
         method: "PATCH",
         json: {
           title: f.title, description: f.description, category: empty(f.category), brand: empty(f.brand), size: empty(f.size),
-          condition: f.condition || null, color: empty(f.color), material: empty(f.material), measurements: empty(f.measurements),
+          condition: f.condition || null, color: empty(f.color), material: empty(f.material), measurements: empty(f.measurements), parcel_size: f.parcel || null,
           price_cents: parseEuro(f.price), purchase_price_cents: parseEuro(f.purchase), notes: empty(f.notes),
         },
       });
@@ -81,7 +81,7 @@ export function ItemEditor({ item, onSaved, aiEnabled, onPhotosChanged }: { item
     setF((p) => ({
       ...p, title: suggestion.title, description: suggestion.description, category: suggestion.category,
       brand: suggestion.brand ?? p.brand, size: suggestion.size ?? p.size, condition: suggestion.condition,
-      color: suggestion.color ?? p.color, material: suggestion.material ?? p.material,
+      color: suggestion.color ?? p.color, material: suggestion.material ?? p.material, parcel: suggestion.parcel_size ?? p.parcel,
     }));
     setSuggestion(null);
   }
@@ -131,6 +131,12 @@ export function ItemEditor({ item, onSaved, aiEnabled, onPhotosChanged }: { item
         </label>
         <label className="field">Farbe<input value={f.color} onChange={set("color")} /></label>
         <label className="field">Material<input value={f.material} onChange={set("material")} /></label>
+        <label className="field">Paketgröße
+          <select value={f.parcel} onChange={set("parcel")}>
+            <option value="">automatisch</option>
+            {["Klein", "Mittel", "Groß"].map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
         <label className="field span-all">Maße<input value={f.measurements} onChange={set("measurements")} placeholder="z. B. Länge 68 cm, Achsel-Achsel 52 cm" /></label>
         <label className="field">Preis (€)<input inputMode="decimal" value={f.price} onChange={set("price")} placeholder={item.price_suggested_cents ? `Vorschlag ${centsToInput(item.price_suggested_cents)}` : ""} />
           {!item.price_confirmed && !!item.price_suggested_cents && (

@@ -1,39 +1,57 @@
 import { chromium, type Browser, type Locator, type Page } from "playwright-core";
 import { env } from "../../config/env.js";
 import { db, nowIso } from "../../db/index.js";
-import { eventBus, type AssistStatus } from "../../lib/eventBus.js";
+import { eventBus, type AssistStatus, type AssistTab } from "../../lib/eventBus.js";
 import { HttpError } from "../../lib/http.js";
 import { photoPath } from "../../storage/photos.js";
 import { getAccount } from "../accounts/repo.js";
 import { createListing, getItem, listPhotos } from "../archive/repo.js";
-import { parseMeasurements, ruleBrand, ruleParcel } from "../listings/brandRules.js";
+import { parcelSize, parseMeasurements, ruleBrand, ruleParcel, type ParcelSize } from "../listings/brandRules.js";
 import { confirmPrice } from "../pricing/engine.js";
 
 /**
  * Posting assistant for the seller's own Vinted-Chrome (remote debugging on
  * port 9222): opens the sell page, uploads the photos and fills title,
  * description and price. The seller reviews and clicks "Hochladen" – the
- * assistant detects the new listing, links it in the archive and prepares
- * the next item. It never submits the form itself.
+ * assistant detects the new listing and links it in the archive. Several
+ * items are prepared in their own tabs, one after another. It never submits
+ * the form itself.
  */
 
-const PUBLISH_TIMEOUT_MS = 30 * 60_000;
+const PUBLISH_TIMEOUT_MS = 3 * 60 * 60_000;
 
 interface Job { itemId: number; accountId: number }
 
 let browser: Browser | null = null;
 let queue: Job[] = [];
-let running = false;
-let skipCurrent = false;
-let status: AssistStatus = { state: "idle", itemId: null, title: null, position: 0, total: 0, filled: [], missing: [], message: null, done: [], fields: [] };
+let preparing = false;
+let fatal: string | null = null;
+let tabs: AssistTab[] = [];
+const pages = new Map<number, Page>();
+const done: AssistStatus["done"] = [];
 
-function setStatus(patch: Partial<AssistStatus>) {
-  status = { ...status, ...patch };
-  if (patch.state && patch.state !== "waiting" && !("fields" in patch)) status.fields = [];
-  eventBus.publish({ type: "assist", status });
+/** Overall status derived from the tabs (one tab per item in the Vinted-Chrome). */
+export function getAssistStatus(): AssistStatus {
+  const current = tabs.find((t) => t.state === "preparing") ?? null;
+  const ready = tabs.filter((t) => t.state === "ready");
+  const last = [...tabs].reverse().find((t) => t.state !== "queued" && t.state !== "preparing") ?? null;
+  const state: AssistStatus["state"] = fatal ? "error" : preparing ? "preparing" : ready.length ? "waiting" : "idle";
+  const prepared = tabs.filter((t) => !["queued", "preparing"].includes(t.state)).length;
+  let message: string | null = null;
+  if (fatal) message = fatal;
+  else if (preparing) message = `Bereite Artikel ${prepared + 1} von ${tabs.length} vor – bitte kurz warten…`;
+  else if (ready.length) message = `${ready.length} Tab(s) bereit: im Vinted-Chrome prüfen und jeweils auf „Hochladen“ klicken. Danach öffnet sich der nächste Tab.`;
+  else if (done.length) message = `${done.length} Artikel eingestellt`;
+  return {
+    state, itemId: current?.itemId ?? null, title: current?.title ?? null, position: prepared, total: tabs.length,
+    filled: last?.filled ?? [], missing: last?.missing ?? [], message, done: [...done], fields: last?.fields ?? [],
+    tabs: tabs.map((t) => ({ ...t })),
+  };
 }
 
-export const getAssistStatus = () => status;
+function publish() {
+  eventBus.publish({ type: "assist", status: getAssistStatus() });
+}
 
 async function connect(): Promise<Browser> {
   if (browser?.isConnected()) return browser;
@@ -102,7 +120,7 @@ function fieldRow(page: Page, label: RegExp) {
 }
 
 /** A visible, clickable element whose own text is exactly `text` (or starts with it for sizes). */
-async function findOption(page: Page, text: string, prefix = false): Promise<Locator | null> {
+async function findOption(page: Page | Locator, text: string, prefix = false): Promise<Locator | null> {
   const re = prefix ? new RegExp(`^\\s*${esc(text)}(\\s|/|\\(|$)`, "i") : new RegExp(`^\\s*${esc(text)}\\s*$`, "i");
   const candidates = [
     page.getByRole("option", { name: re }), page.getByRole("radio", { name: re }), page.getByRole("checkbox", { name: re }),
@@ -176,20 +194,59 @@ async function pickCategory(page: Page, category: string): Promise<boolean> {
   return path.length > 1 && pickDropdown(page, /^kategorie$/i, [path[path.length - 1]!]);
 }
 
-/** Parcel size ("Klein", "Mittel", "Groß") – a list of choices below the "Paketgröße" heading. */
-async function pickParcel(page: Page, size: string): Promise<boolean> {
-  const heading = page.getByText(/^\s*paketgröße/i).first();
+/** Is a radio checked whose card starts with `size` (or are there no radios at all)? */
+function parcelChecked(page: Page, size: string): Promise<boolean> {
+  return page.evaluate((size) => {
+    const radios = [...document.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    if (!radios.length) return true;
+    return radios.some((r) => {
+      if (!r.checked) return false;
+      for (let el: HTMLElement | null = r, i = 0; el && i < 5; el = el.parentElement, i++) {
+        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
+        if (t) return t.startsWith(size.toLowerCase());
+      }
+      return false;
+    });
+  }, size).catch(() => false);
+}
+
+/** Parcel size ("Klein", "Mittel", "Groß") – choice cards below the "Paketgröße" heading. */
+async function pickParcel(page: Page, size: ParcelSize): Promise<boolean> {
+  const headingText = /^\s*paketgröße/i;
+  const heading = page.getByText(headingText).first();
   if (!(await heading.count().catch(() => 0))) return false;
   await heading.scrollIntoViewIfNeeded().catch(() => {});
-  await page.waitForTimeout(500);
-  const option = await findOption(page, size);
+  await page.waitForTimeout(700);
+  const section = page.locator("div, section, fieldset").filter({ has: page.getByText(headingText) }).filter({ hasText: size }).last();
+  const scope: Page | Locator = (await section.count().catch(() => 0)) ? section : page;
+  const starts = new RegExp(`^\\s*${esc(size)}(\\s|$)`, "i");
+  const cards = [
+    scope.locator('[data-testid*="package" i], [data-testid*="parcel" i]').filter({ hasText: starts }),
+    scope.getByRole("radio", { name: starts }),
+    scope.locator("label, [role=radio], li").filter({ hasText: starts }),
+  ];
+  for (const c of cards) {
+    const n = await c.count().catch(() => 0);
+    for (let i = n - 1; i >= 0; i--) {
+      const el = c.nth(i);
+      const text = (await el.innerText().catch(() => "")).trim();
+      if (text && !starts.test(text)) continue; // e.g. the whole section
+      await el.click({ timeout: 3000 }).catch(() => el.check({ force: true, timeout: 3000 }).catch(() => {}));
+      await page.waitForTimeout(400);
+      if (await parcelChecked(page, size)) return true;
+      await el.locator('input[type="radio"]').first().check({ force: true, timeout: 2000 }).catch(() => {});
+      if (await parcelChecked(page, size)) return true;
+    }
+  }
+  const option = await findOption(scope, size);
   if (!option) return false;
   await option.click();
-  return true;
+  await page.waitForTimeout(400);
+  return parcelChecked(page, size);
 }
 
 /** Opens the sell page in the Vinted-Chrome and fills what can be filled. */
-async function prepare(job: Job): Promise<Page> {
+async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missing: string[]; fields: string[] }> {
   const item = getItem(job.itemId);
   const account = getAccount(job.accountId);
   const photos = listPhotos(item.id).slice(0, 20);
@@ -273,27 +330,23 @@ async function prepare(job: Job): Promise<Page> {
     if (value === null) continue;
     if (await fill(page, candidates, String(value), 3000).catch(() => false)) filled.push(label);
   }
-  // Material stays empty on purpose; parcel size comes from the rules (T-shirts small, pullovers medium).
-  const parcel = ruleParcel(item);
+  // Material stays empty on purpose. Parcel size: rules first (T-shirts small, pullovers medium), then the AI's guess.
+  const parcel = ruleParcel(item) ?? parcelSize(item.parcel_size);
   if (parcel) {
     if (await pickParcel(page, parcel).catch(() => false)) filled.push(`Paketgröße ${parcel}`);
     else missing.push("Paketgröße");
   }
-  const notFound = missing.some((m) => ["Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand"].includes(m));
+  const notFound = missing.some((m) => ["Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand", "Paketgröße"].includes(m));
 
-  setStatus({
-    state: "waiting", filled, missing,
-    message: "Bitte im Vinted-Chrome prüfen, fehlende Angaben ergänzen und auf „Hochladen“ klicken.",
-    fields: notFound ? [`Seite: ${page.url()}`, ...(await describeFields(page))] : [],
-  });
-  return page;
+  const details = notFound ? [`Seite: ${page.url()}`, ...(await describeFields(page))] : [];
+  return { page, filled, missing, fields: details };
 }
 
-/** Waits until the page shows a published item (/items/<id>), the tab is closed, or the job is skipped. */
-async function waitForPublish(page: Page): Promise<string | null> {
+/** Waits until the tab shows a published item (/items/<id>); null if the tab was closed or skipped. */
+async function waitForPublish(page: Page, tab: AssistTab): Promise<string | null> {
   const started = Date.now();
   while (Date.now() - started < PUBLISH_TIMEOUT_MS) {
-    if (skipCurrent || page.isClosed()) return null;
+    if (tab.state !== "ready" || page.isClosed()) return null;
     const url = page.url();
     if (/\/items\/\d+/.test(url) && !/\/items\/new/.test(url)) return url.split("?")[0]!;
     await new Promise((r) => setTimeout(r, 1500));
@@ -315,32 +368,64 @@ function linkListing(job: Job, url: string) {
   eventBus.publish({ type: "published", accountId: job.accountId, itemId: item.id, title: item.title });
 }
 
-async function run() {
-  if (running) return;
-  running = true;
+/** Shows the next tab that still waits for the seller's click. */
+async function showNextReady() {
+  if (preparing) return; // don't pull the seller away while a form is being filled
+  const next = tabs.find((t) => t.state === "ready" && pages.get(t.itemId) && !pages.get(t.itemId)!.isClosed());
+  if (next) await pages.get(next.itemId)!.bringToFront().catch(() => {});
+}
+
+/** Watches one prepared tab until the seller uploads it (or closes the tab). */
+async function watch(job: Job, tab: AssistTab, page: Page) {
   try {
-    let position = status.position;
+    const url = await waitForPublish(page, tab);
+    if (url) {
+      linkListing(job, url);
+      Object.assign(tab, { state: "done", url, message: null });
+      done.push({ itemId: tab.itemId, title: tab.title, url });
+      setTimeout(() => void page.close().catch(() => {}), 2000);
+    } else if (tab.state === "ready") {
+      Object.assign(tab, { state: "skipped", message: "Tab geschlossen – übersprungen" });
+    }
+  } catch (e) {
+    Object.assign(tab, { state: "error", message: (e as Error).message });
+  } finally {
+    pages.delete(tab.itemId);
+    publish();
+    await showNextReady();
+  }
+}
+
+/** Fills one tab per item, one after another; each tab is then watched on its own. */
+async function prepareAll() {
+  if (preparing) return;
+  preparing = true;
+  fatal = null;
+  try {
     for (let job = queue.shift(); job; job = queue.shift()) {
-      position++;
-      skipCurrent = false;
-      const item = getItem(job.itemId);
-      setStatus({ state: "preparing", itemId: item.id, title: item.title, position, total: position + queue.length, filled: [], missing: [], message: "Fülle das Vinted-Formular aus…" });
+      const tab = tabs.find((t) => t.itemId === job!.itemId && t.state === "queued");
+      if (!tab) continue;
+      Object.assign(tab, { state: "preparing", message: "Fülle das Vinted-Formular aus…" });
+      publish();
       try {
-        const page = await prepare(job);
-        const url = await waitForPublish(page);
-        if (url) {
-          linkListing(job, url);
-          setStatus({ done: [...status.done, { itemId: item.id, title: item.title, url }], message: "Eingestellt ✓" });
-        }
+        const r = await prepare(job);
+        Object.assign(tab, { state: "ready", filled: r.filled, missing: r.missing, fields: r.fields, message: null });
+        pages.set(tab.itemId, r.page);
+        void watch(job, tab, r.page);
       } catch (e) {
-        const msg = (e as Error).message;
-        setStatus({ state: "error", message: msg });
-        if (e instanceof HttpError && (e.status === 503 || e.status === 401)) { queue = []; break; }
+        Object.assign(tab, { state: "error", message: (e as Error).message });
+        if (e instanceof HttpError && (e.status === 503 || e.status === 401)) {
+          fatal = (e as Error).message;
+          queue = [];
+          for (const t of tabs) if (t.state === "queued") Object.assign(t, { state: "skipped", message: null });
+        }
       }
+      publish();
     }
   } finally {
-    running = false;
-    if (status.state !== "error") setStatus({ state: "idle", itemId: null, title: null, message: status.done.length ? `${status.done.length} Artikel eingestellt` : null });
+    preparing = false;
+    publish();
+    await showNextReady();
   }
 }
 
@@ -351,18 +436,32 @@ export async function startAssist(itemIds: number[], accountId: number) {
     const item = getItem(id);
     if (!listPhotos(id).length) throw new HttpError(400, `„${item.title}“ hat keine Fotos`);
   }
-  if (!running) setStatus({ position: 0, done: [], state: "preparing", message: null });
-  queue.push(...itemIds.filter((id) => !queue.some((j) => j.itemId === id)).map((itemId) => ({ itemId, accountId })));
-  setStatus({ total: status.position + queue.length + (running ? 1 : 0) });
-  void run();
-  return status;
+  if (!tabs.some((t) => ["queued", "preparing", "ready"].includes(t.state))) {
+    tabs = [];
+    done.length = 0;
+  }
+  for (const itemId of itemIds) {
+    if (tabs.some((t) => t.itemId === itemId && ["queued", "preparing", "ready"].includes(t.state))) continue;
+    tabs = tabs.filter((t) => t.itemId !== itemId);
+    tabs.push({ itemId, title: getItem(itemId).title, state: "queued", filled: [], missing: [], message: null, url: null, fields: [] });
+    queue.push({ itemId, accountId });
+  }
+  publish();
+  void prepareAll();
+  return getAssistStatus();
 }
 
-export function skipAssist() {
-  skipCurrent = true;
+/** Skips one item (or the first open one): its tab stays open but is no longer watched. */
+export function skipAssist(itemId?: number) {
+  const tab = tabs.find((t) => (itemId === undefined || t.itemId === itemId) && ["queued", "ready"].includes(t.state));
+  if (!tab) return;
+  queue = queue.filter((j) => j.itemId !== tab.itemId);
+  Object.assign(tab, { state: "skipped", message: null });
+  publish();
 }
 
 export function stopAssist() {
   queue = [];
-  skipCurrent = true;
+  for (const t of tabs) if (t.state === "queued" || t.state === "ready") Object.assign(t, { state: "skipped", message: null });
+  publish();
 }
