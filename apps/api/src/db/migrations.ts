@@ -267,4 +267,45 @@ CREATE TABLE settings (
       if (r.accounts) console.log(`[db] Demo-Daten entfernt: ${r.accounts} Demo-Account(s), ${r.items} Demo-Artikel`);
     },
   },
+  {
+    id: 3,
+    name: "price_learning",
+    sql: `
+ALTER TABLE items ADD COLUMN price_suggested_cents INTEGER;
+ALTER TABLE items ADD COLUMN price_suggestion_reason TEXT;
+ALTER TABLE items ADD COLUMN price_confirmed INTEGER NOT NULL DEFAULT 0;
+
+-- Prices the seller confirmed/set, or that actually sold: the learning data.
+CREATE TABLE price_examples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+  source TEXT NOT NULL CHECK (source IN ('confirmed','bulk','manual','sold')),
+  title TEXT NOT NULL,
+  brand TEXT,
+  category TEXT,
+  size TEXT,
+  condition TEXT,
+  price_cents INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT ${NOW},
+  UNIQUE (item_id, source)
+);
+
+-- Explicit pricing rules ("Marke X → 60 €").
+CREATE TABLE price_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  brand TEXT,
+  category TEXT,
+  keyword TEXT,
+  price_cents INTEGER NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT ${NOW}
+);
+
+-- Already listed items carry prices the seller used.
+UPDATE items SET price_confirmed = 1 WHERE price_cents IS NOT NULL AND EXISTS (SELECT 1 FROM listings l WHERE l.item_id = items.id);
+INSERT OR IGNORE INTO price_examples (item_id, source, title, brand, category, size, condition, price_cents, created_at)
+  SELECT i.id, 'sold', i.title, i.brand, i.category, i.size, i.condition, MAX(s.price_cents), MAX(s.sold_at)
+  FROM sales s JOIN items i ON i.id = s.item_id GROUP BY i.id;
+`,
+  },
 ];

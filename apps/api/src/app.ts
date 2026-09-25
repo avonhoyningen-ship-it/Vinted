@@ -7,6 +7,7 @@ import { accountsRouter } from "./modules/accounts/routes.js";
 import { archiveRouter } from "./modules/archive/routes.js";
 import { automationsRouter } from "./modules/automations/routes.js";
 import { listingsRouter } from "./modules/listings/routes.js";
+import { pricingRouter } from "./modules/pricing/routes.js";
 import { statsRouter } from "./modules/stats/routes.js";
 import { authRouter } from "./modules/system/authRoutes.js";
 import { systemRouter } from "./modules/system/routes.js";
@@ -32,6 +33,7 @@ export function createApp() {
   app.use("/api/archive", archiveRouter);
   app.use("/api/automations", automationsRouter);
   app.use("/api/stats", statsRouter);
+  app.use("/api/pricing", pricingRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
   app.use(errorHandler);
   return app;

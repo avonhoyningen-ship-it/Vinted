@@ -5,6 +5,7 @@ import { h, HttpError, idParam } from "../../lib/http.js";
 import { upload } from "../../lib/upload.js";
 import { storePhoto } from "../../storage/photos.js";
 import { getAccount } from "../accounts/repo.js";
+import { confirmPrice, refreshSuggestion } from "../pricing/engine.js";
 import { enqueue } from "../listings/queue.js";
 import {
   addPhoto, archiveQuery, createItem, createListing, deleteItem, deletePhoto, endListing, facets, getItem, getListing,
@@ -23,7 +24,10 @@ archiveRouter.get("/facets", h((_req, res) => {
 
 /** Create an archive item manually (JSON). For photo-first creation see POST /api/listings/drafts. */
 archiveRouter.post("/", h((req, res) => {
-  res.status(201).json(createItem(itemInput.parse(req.body)));
+  const item = createItem(itemInput.parse(req.body));
+  if (item.price_cents) confirmPrice(item.id, item.price_cents, "manual");
+  else refreshSuggestion(item.id);
+  res.status(201).json(getItem(item.id));
 }));
 
 archiveRouter.get("/:id", h((req, res) => {
@@ -31,7 +35,13 @@ archiveRouter.get("/:id", h((req, res) => {
 }));
 
 archiveRouter.patch("/:id", h((req, res) => {
-  res.json(updateItem(idParam(req), itemPatch.parse(req.body)));
+  const id = idParam(req);
+  const patch = itemPatch.parse(req.body);
+  const before = getItem(id);
+  const item = updateItem(id, patch);
+  if (patch.price_cents && (patch.price_cents !== before.price_cents || !before.price_confirmed)) confirmPrice(id, patch.price_cents, "manual");
+  else if (!before.price_confirmed) refreshSuggestion(id);
+  res.json(getItem(item.id));
 }));
 
 archiveRouter.delete("/:id", h((req, res) => {

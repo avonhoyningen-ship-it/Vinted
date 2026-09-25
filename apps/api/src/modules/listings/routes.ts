@@ -7,6 +7,7 @@ import { upload, uploadThumbs } from "../../lib/upload.js";
 import { photoPath, rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
 import fs from "node:fs";
 import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
+import { confirmPrice, examplesForPrompt, refreshSuggestion } from "../pricing/engine.js";
 import { aiEnabled, composeDescription, detectOrientations, generateListing, groupingThumb, groupPhotosInOrder, normalizeOrder, type Rotation } from "./ai.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
@@ -58,6 +59,9 @@ listingsRouter.post("/drafts", upload.array("photos", 20), h(async (req, res) =>
   const item = createItem({ ...data, measurements, title: data.title || measurements || "Neuer Artikel" });
   for (const s of stored) addPhoto(item.id, s.photo, s.name);
 
+  if (data.price_cents) confirmPrice(item.id, data.price_cents, "manual");
+  else refreshSuggestion(item.id);
+
   let suggestion = null;
   let aiError: string | null = null;
   if (req.body.ai === "true" && aiEnabled()) {
@@ -77,6 +81,7 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
   const photos = listPhotos(itemId);
   const s = await generateListing(photos, {
     hints, measurements: item.measurements, language: getSetting("ai.language"), stylePrompt: getSetting("ai.listingPrompt"),
+    priceExamples: examplesForPrompt(item),
   });
   // Outfit shot → article only → details → tag (as decided by the model).
   const sent = photos.slice(0, 20);
@@ -93,9 +98,11 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
       condition: keep.condition ?? s.condition,
       color: keep.color ?? s.color,
       material: keep.material ?? s.material,
-      price_cents: keep.price_cents ?? Math.round(s.suggested_price_eur * 100),
     });
+    if (keep.price_cents) confirmPrice(itemId, keep.price_cents, "manual");
   }
+  // The price is only a suggestion until the seller confirms it (✓).
+  if (!getItem(itemId).price_confirmed) refreshSuggestion(itemId, Math.round(s.suggested_price_eur * 100));
   return { ...s, description };
 }
 

@@ -56,6 +56,8 @@ export interface GenerateOptions {
   measurements?: string | null;
   language?: string;
   stylePrompt: string;
+  /** The seller's learned prices for similar items (one per line). */
+  priceExamples?: string;
 }
 
 /** Small JPEG for the model (faster, cheaper); full-size files stay untouched. */
@@ -74,8 +76,9 @@ export async function generateListing(photos: PhotoRow[], opts: GenerateOptions)
   const info = [
     `Sprache der Texte: ${opts.language ?? "de"}.`,
     opts.measurements ? `Maße vom Verkäufer (aus dem Ordnernamen): ${opts.measurements}` : "Keine Maße angegeben – keine Maße erfinden.",
+    opts.priceExamples ? `Preise, die der Verkäufer für ähnliche Artikel verlangt bzw. erzielt hat – orientiere deinen Preisvorschlag daran:\n${opts.priceExamples}` : "",
     opts.hints ? `Hinweise vom Verkäufer (haben Vorrang vor deiner Einschätzung): ${opts.hints}` : "Keine weiteren Hinweise vom Verkäufer.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   content.push({ type: "text", text: `Erstelle das Verkaufs-Kit für diesen Artikel.\n${info}` });
 
   const response = await getClient().messages.parse({

@@ -9,6 +9,7 @@ export interface Item {
   id: number; title: string; description: string; category: string | null; brand: string | null; size: string | null;
   condition: string | null; color: string | null; material: string | null; measurements: string | null;
   price_cents: number | null; currency: string; purchase_price_cents: number | null; status: string; notes: string | null;
+  price_suggested_cents: number | null; price_suggestion_reason: string | null; price_confirmed: number;
   created_at: string; updated_at: string;
   cover_photo?: string | null; photo_count?: number; times_listed?: number; last_account?: string | null;
 }
@@ -33,4 +34,10 @@ export interface Template { id: number; name: string; kind: string; body: string
 export interface Suggestion {
   title: string; description: string; bullets: string[]; hashtags: string[]; category: string; brand: string | null; size: string | null; condition: string;
   color: string | null; material: string | null; suggested_price_eur: number; price_reasoning: string; confidence_notes: string;
+}
+
+export interface PriceRule { id: number; brand: string | null; category: string | null; keyword: string | null; price_cents: number; note: string | null }
+export interface PriceExample {
+  id: number; item_id: number | null; source: "confirmed" | "bulk" | "manual" | "sold"; title: string; brand: string | null;
+  category: string | null; size: string | null; condition: string | null; price_cents: number; created_at: string;
 }

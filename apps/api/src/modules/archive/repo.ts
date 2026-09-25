@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db, nowIso } from "../../db/index.js";
 import { HttpError, notFound } from "../../lib/http.js";
 import type { StoredPhoto } from "../../storage/photos.js";
+import { recordPriceExample } from "../pricing/engine.js";
 
 export const CONDITIONS = ["new_with_tags", "new_without_tags", "very_good", "good", "satisfactory"] as const;
 export const ITEM_STATUSES = ["draft", "queued", "active", "sold", "archived", "relisted"] as const;
@@ -21,6 +22,9 @@ export interface ItemRow {
   price_cents: number | null;
   currency: string;
   purchase_price_cents: number | null;
+  price_suggested_cents: number | null;
+  price_suggestion_reason: string | null;
+  price_confirmed: number;
   status: (typeof ITEM_STATUSES)[number];
   notes: string | null;
   created_at: string;
@@ -182,7 +186,9 @@ export function createListing(data: {
 export function markListingSold(listingId: number, soldAt: string, priceCents: number | null) {
   db.prepare("UPDATE listings SET status = 'sold', sold_at = ?, sold_price_cents = ?, ended_at = ?, updated_at = ? WHERE id = ?")
     .run(soldAt, priceCents, soldAt, nowIso(), listingId);
-  recomputeItemStatus(getListing(listingId).item_id);
+  const itemId = getListing(listingId).item_id;
+  recomputeItemStatus(itemId);
+  if (priceCents) recordPriceExample(itemId, priceCents, "sold"); // real sale prices teach the most
 }
 
 export function endListing(listingId: number, status: "removed" | "expired" | "hidden") {

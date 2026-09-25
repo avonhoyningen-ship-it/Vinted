@@ -4,14 +4,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { EnqueueDialog } from "@/components/EnqueueDialog";
 import { FolderUpload } from "@/components/FolderUpload";
+import { PriceCell } from "@/components/PriceCell";
+import { PricingTab } from "@/components/PricingTab";
 import { Dropzone } from "@/components/PhotoManager";
 import { useToast } from "@/components/Toasts";
 import { Empty, ErrorBox, PageHead, StatusBadge, Thumb } from "@/components/ui";
-import { api, dateTime, euro, photoUrl } from "@/lib/api";
+import { api, dateTime, euro, parseEuro, photoUrl } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { Item, Listing, QueueEntry, Template } from "@/lib/types";
 
-const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
+const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", pricing: "Preise", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
 type Tab = keyof typeof TABS;
 
 function ListingsInner() {
@@ -30,6 +32,7 @@ function ListingsInner() {
       {tab === "folder" && <FolderTab onDone={() => setTab("drafts")} />}
       {tab === "new" && <NewTab onDone={() => setTab("drafts")} />}
       {tab === "drafts" && <DraftsTab />}
+      {tab === "pricing" && <PricingTab />}
       {tab === "queue" && <QueueTab />}
       {tab === "active" && <ActiveTab />}
       {tab === "templates" && <TemplatesTab />}
@@ -148,7 +151,28 @@ function DraftsTab() {
   const [selected, setSelected] = useState<number[]>([]);
   const [enqueue, setEnqueue] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
+  const [bulkPrice, setBulkPrice] = useState("");
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const withSuggestion = (data ?? []).filter((d) => selected.includes(d.id) && !d.price_confirmed && d.price_suggested_cents);
+
+  async function setPriceForSelection() {
+    const cents = parseEuro(bulkPrice);
+    if (!cents) return toast({ kind: "error", text: "Bitte einen Preis eingeben, z. B. 25" });
+    try {
+      await api("/pricing/bulk", { method: "POST", json: { itemIds: selected, priceCents: cents } });
+      toast({ kind: "info", text: `${selected.length} Artikel auf ${euro(cents)} gesetzt – das Tool merkt sich den Preis` });
+      setBulkPrice("");
+      void reload();
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    }
+  }
+
+  async function acceptSelection() {
+    const r = await api<{ accepted: number }>("/pricing/accept", { method: "POST", json: { itemIds: withSuggestion.map((d) => d.id) } });
+    toast({ kind: "info", text: `${r.accepted} Preisvorschläge übernommen` });
+    void reload();
+  }
 
   async function ai(id: number) {
     setBusy(id);
@@ -169,6 +193,10 @@ function DraftsTab() {
         <span className="muted">{selected.length} ausgewählt</span>
         <button className="btn small" onClick={() => setSelected(selected.length === data?.length ? [] : data?.map((d) => d.id) ?? [])}>Alle</button>
         <div className="spacer" />
+        <input style={{ width: 110 }} inputMode="decimal" placeholder="Preis €" value={bulkPrice} onChange={(e) => setBulkPrice(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && selected.length && setPriceForSelection()} aria-label="Preis für Auswahl" />
+        <button className="btn" disabled={!selected.length || !bulkPrice} onClick={setPriceForSelection}>Preis für Auswahl setzen</button>
+        <button className="btn" disabled={!withSuggestion.length} onClick={acceptSelection}>✓ Vorschläge übernehmen ({withSuggestion.length})</button>
         <button className="btn primary" disabled={!selected.length} onClick={() => setEnqueue(true)}>In Warteschlange…</button>
       </div>
       {data && !data.length && <div className="card"><Empty>Keine Entwürfe. <Link href="/listings?tab=new">Neue Artikel erstellen →</Link></Empty></div>}
@@ -178,19 +206,20 @@ function DraftsTab() {
             <thead><tr><th></th><th></th><th>Titel</th><th>Marke / Größe</th><th className="num">Preis</th><th className="num">Fotos</th><th></th></tr></thead>
             <tbody>
               {data.map((d) => {
-                const ready = d.price_cents !== null && !!d.title && (d.photo_count ?? 0) > 0;
+                const ready = !!d.price_confirmed && d.price_cents !== null && !!d.title && (d.photo_count ?? 0) > 0;
                 return (
                   <tr key={d.id}>
                     <td><input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} aria-label="auswählen" /></td>
                     <td style={{ width: 56 }}><Thumb src={photoUrl(d.cover_photo)} /></td>
-                    <td><Link href={`/archive/${d.id}`}>{d.title}</Link>{!ready && <div className="small" style={{ color: "var(--warn)" }}>Preis/Titel/Foto fehlt</div>}</td>
+                    <td><Link href={`/archive/${d.id}`}>{d.title}</Link>{!ready && <div className="small" style={{ color: "var(--warn)" }}>
+                      {!(d.photo_count ?? 0) ? "Foto fehlt" : d.price_suggested_cents && !d.price_confirmed ? "Preis noch bestätigen (✓)" : "Preis fehlt"}</div>}</td>
                     <td>{[d.brand, d.size].filter(Boolean).join(" · ") || "–"}</td>
-                    <td className="num">{euro(d.price_cents, d.currency)}</td>
+                    <td className="num"><PriceCell item={d} onChange={reload} /></td>
                     <td className="num">{d.photo_count}</td>
-                    <td className="row" style={{ justifyContent: "flex-end" }}>
+                    <td><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       {info.data?.aiEnabled && <button className="btn small" disabled={busy === d.id} onClick={() => ai(d.id)}>{busy === d.id ? "KI…" : "✨ KI"}</button>}
                       <Link className="btn small" href={`/archive/${d.id}`}>Bearbeiten</Link>
-                    </td>
+                    </div></td>
                   </tr>
                 );
               })}

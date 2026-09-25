@@ -53,6 +53,15 @@ export function ItemEditor({ item, onSaved, aiEnabled, onPhotosChanged }: { item
     }
   }
 
+  async function acceptSuggestion() {
+    try {
+      await api("/pricing/accept", { method: "POST", json: { itemIds: [item.id] } });
+      onSaved((await api<{ item: Item }>(`/archive/${item.id}`)).item);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function runAi() {
     setBusy(true);
     setError(null);
@@ -73,7 +82,6 @@ export function ItemEditor({ item, onSaved, aiEnabled, onPhotosChanged }: { item
       ...p, title: suggestion.title, description: suggestion.description, category: suggestion.category,
       brand: suggestion.brand ?? p.brand, size: suggestion.size ?? p.size, condition: suggestion.condition,
       color: suggestion.color ?? p.color, material: suggestion.material ?? p.material,
-      price: suggestion.suggested_price_eur.toFixed(2).replace(".", ","),
     }));
     setSuggestion(null);
   }
@@ -124,7 +132,15 @@ export function ItemEditor({ item, onSaved, aiEnabled, onPhotosChanged }: { item
         <label className="field">Farbe<input value={f.color} onChange={set("color")} /></label>
         <label className="field">Material<input value={f.material} onChange={set("material")} /></label>
         <label className="field span-all">Maße<input value={f.measurements} onChange={set("measurements")} placeholder="z. B. Länge 68 cm, Achsel-Achsel 52 cm" /></label>
-        <label className="field">Preis (€)<input inputMode="decimal" value={f.price} onChange={set("price")} /></label>
+        <label className="field">Preis (€)<input inputMode="decimal" value={f.price} onChange={set("price")} placeholder={item.price_suggested_cents ? `Vorschlag ${centsToInput(item.price_suggested_cents)}` : ""} />
+          {!item.price_confirmed && !!item.price_suggested_cents && (
+            <span className="row small" style={{ gap: 6, fontWeight: 400 }}>
+              Vorschlag <strong>{centsToInput(item.price_suggested_cents)} €</strong>
+              <button type="button" className="btn small primary" onClick={acceptSuggestion}>✓ übernehmen</button>
+              <span className="muted" style={{ flexBasis: "100%" }}>{item.price_suggestion_reason}</span>
+            </span>
+          )}
+        </label>
         <label className="field">Einkaufspreis (€, optional)<input inputMode="decimal" value={f.purchase} onChange={set("purchase")} /></label>
         <label className="field span-all">Interne Notizen<input value={f.notes} onChange={set("notes")} /></label>
       </div>

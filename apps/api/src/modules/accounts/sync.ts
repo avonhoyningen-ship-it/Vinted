@@ -6,6 +6,7 @@ import {
   addPhoto, CONDITIONS, createItem, createListing, endListing, markListingSold, recomputeItemStatus, type ListingRow,
 } from "../archive/repo.js";
 import { ingestEvent } from "../automations/engine.js";
+import { confirmPrice } from "../pricing/engine.js";
 import { getAccount, sessionFor, setAccountStatus, type AccountRow } from "./repo.js";
 
 export interface SyncResult {
@@ -45,6 +46,8 @@ async function importRemoteListing(account: AccountRow, r: RemoteListing): Promi
     price_cents: r.priceCents,
     currency: r.currency,
   });
+  // Prices already live on Vinted were set by the seller: learn from them.
+  if (r.priceCents) confirmPrice(item.id, r.priceCents, "confirmed");
   for (const url of r.photoUrls.slice(0, 20)) {
     try {
       addPhoto(item.id, await storePhotoFromUrl(url), null);

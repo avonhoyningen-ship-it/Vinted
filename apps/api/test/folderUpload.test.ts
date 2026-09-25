@@ -58,7 +58,10 @@ describe("folder upload with AI sales kit", () => {
     expect(call.stylePrompt).toMatch(/Vinted-Reselling/);
 
     const item = res.body.item;
-    expect(item).toMatchObject({ measurements: "Laenge 70 Breite 55", brand: "Carhartt", price_cents: 3900, status: "draft" });
+    expect(item).toMatchObject({ measurements: "Laenge 70 Breite 55", brand: "Carhartt", status: "draft", price_cents: null, price_confirmed: 0 });
+    // No learned prices yet → the AI estimate becomes the suggestion (to be confirmed with ✓).
+    expect(item.price_suggested_cents).toBe(3900);
+    expect(item.price_suggestion_reason).toMatch(/KI-Schätzung/);
     expect(item.description).toContain("- 📏 Maße: Laenge 70 Breite 55");
     expect(item.description.split("\n").filter((l: string) => l.startsWith("- "))).toHaveLength(4);
     expect(item.description).toMatch(/#japanstyle #y2k #vintage #olderbrothercore$/);
