@@ -66,8 +66,26 @@ export function isAuthenticated(req: Request): boolean {
 
 const PUBLIC_PATHS = new Set(["/health", "/auth/login", "/auth/logout", "/auth/me"]);
 
+const isLoopback = (ip: string | undefined) => !!ip && /^(127\.|::1$|::ffff:127\.)/.test(ip.trim());
+
+/**
+ * Where the request really comes from. The Next.js dev server proxies /api from
+ * localhost and passes the browser's address in x-forwarded-for.
+ */
+export function clientIsLocal(req: Request): boolean {
+  if (!isLoopback(req.socket.remoteAddress)) return false;
+  const forwarded = String(req.headers["x-forwarded-for"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return forwarded.every(isLoopback);
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (PUBLIC_PATHS.has(req.path) || isAuthenticated(req)) return next();
+  if (PUBLIC_PATHS.has(req.path)) return next();
+  // Without a password the dashboard only works on this PC – never open to the whole network.
+  if (!authEnabled()) {
+    if (clientIsLocal(req)) return next();
+    return res.status(403).json({ error: "Ohne Passwort ist das Dashboard nur auf dem PC selbst nutzbar. Für Zugriff von Handy/Tablet in .env ein DASHBOARD_PASSWORD setzen." });
+  }
+  if (isAuthenticated(req)) return next();
   res.status(401).json({ error: "Nicht angemeldet" });
 }
 

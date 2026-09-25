@@ -44,3 +44,17 @@ describe("auth", () => {
     expect(r.status).toBe(429);
   }, 15_000);
 });
+
+describe("without a password", () => {
+  it("only allows requests from this PC", async () => {
+    vi.resetModules();
+    delete process.env.DASHBOARD_PASSWORD;
+    delete process.env.API_TOKEN;
+    const open = (await import("../src/app.js")).createApp();
+    expect((await request(open).get("/api/accounts")).status).toBe(200); // supertest connects via loopback
+    const lan = await request(open).get("/api/accounts").set("x-forwarded-for", "192.168.178.40");
+    expect(lan.status).toBe(403);
+    expect(lan.body.error).toMatch(/nur auf dem PC/);
+    expect((await request(open).get("/api/auth/me")).body).toEqual({ authRequired: false, authenticated: true });
+  });
+});

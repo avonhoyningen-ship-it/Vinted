@@ -25,7 +25,7 @@ echo Zum Beenden einfach dieses Fenster schliessen.
 echo.
 
 rem Oeffnet den Browser, sobald das Dashboard erreichbar ist.
-start "" /min powershell -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 120;$i++){try{Invoke-WebRequest -UseBasicParsing http://localhost:3000/login -TimeoutSec 10 | Out-Null; Start-Process 'http://localhost:3000'; break}catch{Start-Sleep 2}}"
+start "" /min powershell -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 120;$i++){try{Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/login -TimeoutSec 10 | Out-Null; Start-Process 'http://localhost:3000'; break}catch{Start-Sleep 2}}"
 
 call npm.cmd run dev
 goto end

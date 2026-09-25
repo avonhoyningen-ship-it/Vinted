@@ -18,7 +18,10 @@ function ensure(key, value, comment) {
 ensure("ENCRYPTION_KEY", crypto.randomBytes(32).toString("base64"));
 const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const pw = Array.from(crypto.randomBytes(18), (b) => alphabet[b % alphabet.length]).join("");
-const newPw = ensure("DASHBOARD_PASSWORD", pw, "Passwort für den Login im Dashboard (mind. 10 Zeichen)");
+// Only for a fresh .env: an existing but empty DASHBOARD_PASSWORD means "no login" and is respected.
+const newPw = !exists || !/^DASHBOARD_PASSWORD=/m.test(content)
+  ? ensure("DASHBOARD_PASSWORD", pw, "Passwort für den Login im Dashboard (mind. 10 Zeichen; leer = kein Login, dann nur auf diesem PC nutzbar)")
+  : null;
 
 fs.writeFileSync(".env", content, { mode: 0o600 });
 console.log(exists ? ".env ergänzt." : ".env erstellt.");
