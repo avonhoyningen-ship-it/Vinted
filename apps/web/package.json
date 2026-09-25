@@ -16,6 +16,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.9.7",
     "canvas-confetti": "^1.9.4",
     "next": "^16.3.6",
     "react": "^19.3.0",

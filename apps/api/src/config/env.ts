@@ -25,7 +25,7 @@ function resolvePath(p: string): string {
 }
 
 export const env = {
-  port: int("API_PORT", 4000),
+  port: int("API_PORT", int("PORT", 4000)), // Railway sets PORT
   corsOrigin: str("CORS_ORIGIN", "http://localhost:3000"),
   /** Bearer token for scripts / a future mobile app (never shipped to the browser). */
   apiToken: process.env.API_TOKEN || null,
@@ -60,6 +60,18 @@ export const env = {
   databaseCaCert: process.env.DATABASE_CA_CERT || null,
   /** Apply the Postgres schema on start (idempotent). */
   dbAutoMigrate: process.env.DB_AUTO_MIGRATE !== "false",
+  /** Public URL of the web app (Stripe return links), e.g. https://app.example.com */
+  appUrl: str("APP_URL", "http://localhost:3000"),
+  /** Clerk (cloud mode): secret key from dashboard.clerk.com → API keys. */
+  clerkSecretKey: process.env.CLERK_SECRET_KEY || null,
+  /** Optional: PEM public key for networkless token checks (Clerk → API keys → JWT public key). */
+  clerkJwtKey: process.env.CLERK_JWT_KEY || null,
+  /** Stripe (cloud mode): secret key, webhook signing secret, monthly price id. */
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY || null,
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || null,
+  stripePriceId: process.env.STRIPE_PRICE_ID || null,
+  /** Payment methods offered in Stripe Checkout (PayPal must be activated in the Stripe dashboard). */
+  stripePaymentMethods: (process.env.STRIPE_PAYMENT_METHODS || "card,paypal").split(",").map((s) => s.trim()).filter(Boolean),
   /** Only for tests: override the Vinted sell page URL. */
   vintedSellUrl: process.env.VINTED_SELL_URL || null,
 };
