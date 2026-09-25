@@ -1,24 +1,57 @@
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import { env } from "../config/env.js";
 import { migrations } from "./migrations.js";
 
-export type DB = Database.Database;
+/**
+ * Uses Node's built-in SQLite (node:sqlite, Node >= 22.13), so no native
+ * module has to be compiled on install (works on Windows without Visual Studio).
+ */
+export type DB = DatabaseSync & {
+  /** Wraps fn in a transaction (nested calls use savepoints). Returns a runner like better-sqlite3. */
+  transaction<T>(fn: () => T): () => T;
+};
+
+let depth = 0;
 
 function open(file: string): DB {
   if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.pragma("busy_timeout = 5000");
+  const raw = new DatabaseSync(file);
+  raw.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+  // Like better-sqlite3's usage in this codebase: shared param objects may carry extra keys.
+  const prepare = raw.prepare.bind(raw);
+  const db = Object.assign(raw, {
+    prepare(sql: string) {
+      const stmt = prepare(sql);
+      stmt.setAllowUnknownNamedParameters(true);
+      return stmt;
+    },
+    transaction<T>(fn: () => T) {
+      return () => {
+        const sp = `sp${depth}`;
+        raw.exec(depth === 0 ? "BEGIN" : `SAVEPOINT ${sp}`);
+        depth++;
+        try {
+          const result = fn();
+          depth--;
+          raw.exec(depth === 0 ? "COMMIT" : `RELEASE ${sp}`);
+          return result;
+        } catch (e) {
+          depth--;
+          raw.exec(depth === 0 ? "ROLLBACK" : `ROLLBACK TO ${sp}; RELEASE ${sp}`);
+          throw e;
+        }
+      };
+    },
+  }) as DB;
   migrate(db);
   return db;
 }
 
 export function migrate(db: DB) {
   db.exec("CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)");
-  const applied = new Set(db.prepare("SELECT id FROM _migrations").all().map((r) => (r as { id: number }).id));
+  const applied = new Set(db.prepare("SELECT id FROM _migrations").all().map((r) => Number(r.id)));
   for (const m of migrations) {
     if (applied.has(m.id)) continue;
     db.transaction(() => {

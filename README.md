@@ -6,7 +6,8 @@ Sale-Sound und Statistiken. Läuft komplett lokal bzw. auf einem eigenen Server.
 
 - **Frontend:** Next.js 16 (React 19), Recharts, canvas-confetti – `apps/web`
 - **Backend:** Node.js + Express, eigenständige REST-API (auch für eine spätere Mobile-App) – `apps/api`
-- **Datenbank:** SQLite (better-sqlite3), Fotos im Dateisystem – `data/`
+- **Datenbank:** SQLite (in Node.js eingebaut, `node:sqlite` – nichts zu kompilieren), Fotos im Dateisystem – `data/`
+- **Voraussetzung:** Node.js 22.13 oder neuer (empfohlen: aktuelle LTS)
 
 ## Schnellstart
 

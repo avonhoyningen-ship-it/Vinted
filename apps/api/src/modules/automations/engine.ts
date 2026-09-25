@@ -67,7 +67,7 @@ export function ruleToApi(r: RuleRow) {
 }
 
 export function getRule(id: number): RuleRow {
-  const r = db.prepare("SELECT * FROM automation_rules WHERE id = ?").get(id) as RuleRow | undefined;
+  const r = db.prepare("SELECT * FROM automation_rules WHERE id = ?").get(id) as unknown as RuleRow | undefined;
   if (!r) throw notFound("Regel");
   return r;
 }
@@ -134,7 +134,7 @@ export function ingestEvent(e: IncomingEvent, silent = false): { isNew: boolean;
 
 function matchingRules(trigger: keyof typeof TRIGGERS, accountId: number): RuleRow[] {
   return db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger_type = ? AND (account_id IS NULL OR account_id = ?)")
-    .all(trigger, accountId) as RuleRow[];
+    .all(trigger, accountId) as unknown as RuleRow[];
 }
 
 export function matchesKeywords(text: string, keywords: string[] | undefined): boolean {
@@ -184,7 +184,7 @@ function insertAction(a: {
 /** Schedules price drops for listings that have been active for too long. */
 export function scheduleStaleListingActions(now = new Date()): number {
   let scheduled = 0;
-  const rules = db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger_type = 'listing_stale'").all() as RuleRow[];
+  const rules = db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger_type = 'listing_stale'").all() as unknown as RuleRow[];
   for (const rule of rules) {
     const tc = JSON.parse(rule.trigger_config) as z.infer<typeof triggerConfig>;
     const ac = JSON.parse(rule.action_config) as z.infer<typeof actionConfig>;
@@ -288,7 +288,7 @@ export async function executeAction(a: ActionRow): Promise<void> {
 
 export async function runDueActions(limit = 20): Promise<number> {
   if (getSetting("automation.paused")) return 0;
-  const due = db.prepare("SELECT * FROM scheduled_actions WHERE status = 'pending' AND run_at <= ? ORDER BY run_at LIMIT ?").all(nowIso(), limit) as ActionRow[];
+  const due = db.prepare("SELECT * FROM scheduled_actions WHERE status = 'pending' AND run_at <= ? ORDER BY run_at LIMIT ?").all(nowIso(), limit) as unknown as ActionRow[];
   for (const a of due) await executeAction(a);
   return due.length;
 }

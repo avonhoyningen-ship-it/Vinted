@@ -12,7 +12,7 @@ automationsRouter.get("/meta", (_req, res) => {
 });
 
 automationsRouter.get("/rules", h((_req, res) => {
-  const rules = db.prepare("SELECT * FROM automation_rules ORDER BY created_at DESC").all() as RuleRow[];
+  const rules = db.prepare("SELECT * FROM automation_rules ORDER BY created_at DESC").all() as unknown as RuleRow[];
   const stats = db.prepare("SELECT rule_id, status, COUNT(*) n FROM scheduled_actions GROUP BY rule_id, status").all() as { rule_id: number; status: string; n: number }[];
   res.json(rules.map((r) => ({
     ...ruleToApi(r),

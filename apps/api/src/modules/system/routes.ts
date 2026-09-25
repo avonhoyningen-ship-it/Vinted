@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import type { SQLInputValue } from "node:sqlite";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../../config/env.js";
@@ -91,7 +92,7 @@ systemRouter.get("/photos/:file", (req, res) => {
 systemRouter.get("/dashboard", h((_req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 7) + "-01";
-  const q = (sql: string, ...p: unknown[]) => db.prepare(sql).get(...p);
+  const q = (sql: string, ...p: SQLInputValue[]) => db.prepare(sql).get(...p);
   res.json({
     accounts: q("SELECT COUNT(*) total, SUM(status = 'connected') connected, SUM(status = 'error') errors FROM accounts"),
     today: q("SELECT COUNT(*) sales, COALESCE(SUM(price_cents), 0) revenue_cents FROM sales WHERE sold_at >= ?", today),

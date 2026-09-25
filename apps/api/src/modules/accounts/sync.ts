@@ -60,7 +60,7 @@ async function importRemoteListing(account: AccountRow, r: RemoteListing): Promi
 
 function listingByVintedId(accountId: number, vintedItemId: string | null): ListingRow | undefined {
   if (!vintedItemId) return undefined;
-  return db.prepare("SELECT * FROM listings WHERE account_id = ? AND vinted_item_id = ?").get(accountId, vintedItemId) as ListingRow | undefined;
+  return db.prepare("SELECT * FROM listings WHERE account_id = ? AND vinted_item_id = ?").get(accountId, vintedItemId) as unknown as ListingRow | undefined;
 }
 
 /**
@@ -101,7 +101,7 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
     }
     // Listings that disappeared from Vinted are marked removed; archive data stays.
     if (remote.length > 0) {
-      const active = db.prepare("SELECT * FROM listings WHERE account_id = ? AND status = 'active' AND vinted_item_id IS NOT NULL").all(accountId) as ListingRow[];
+      const active = db.prepare("SELECT * FROM listings WHERE account_id = ? AND status = 'active' AND vinted_item_id IS NOT NULL").all(accountId) as unknown as ListingRow[];
       for (const l of active) {
         if (!seen.has(l.vinted_item_id!)) {
           endListing(l.id, "removed");

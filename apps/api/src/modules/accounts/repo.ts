@@ -48,11 +48,11 @@ export const accountInput = z.object({
 export const accountPatch = accountInput.partial();
 
 export function listAccounts(): AccountRow[] {
-  return db.prepare("SELECT * FROM accounts ORDER BY name").all() as AccountRow[];
+  return db.prepare("SELECT * FROM accounts ORDER BY name").all() as unknown as AccountRow[];
 }
 
 export function getAccount(id: number): AccountRow {
-  const a = db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as AccountRow | undefined;
+  const a = db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as unknown as AccountRow | undefined;
   if (!a) throw notFound("Account");
   return a;
 }

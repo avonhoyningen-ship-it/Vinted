@@ -57,7 +57,7 @@ export function enqueue(input: z.infer<typeof enqueueInput>, isReupload = false)
 }
 
 export function getQueueEntry(id: number): QueueRow {
-  const q = db.prepare("SELECT * FROM publish_queue WHERE id = ?").get(id) as QueueRow | undefined;
+  const q = db.prepare("SELECT * FROM publish_queue WHERE id = ?").get(id) as unknown as QueueRow | undefined;
   if (!q) throw notFound("Warteschlangen-Eintrag");
   return q;
 }
@@ -130,7 +130,7 @@ export async function processDueQueue(): Promise<number> {
     SELECT q.* FROM publish_queue q JOIN accounts a ON a.id = q.account_id
     WHERE q.status = 'pending' AND q.scheduled_at <= ? AND a.status = 'connected'
     ORDER BY q.scheduled_at
-  `).all(nowIso()) as QueueRow[];
+  `).all(nowIso()) as unknown as QueueRow[];
   const handled = new Set<number>();
   let n = 0;
   for (const q of due) {

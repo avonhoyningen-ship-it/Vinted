@@ -1,3 +1,4 @@
+import type { SQLInputValue } from "node:sqlite";
 import { z } from "zod";
 import { db, nowIso } from "../../db/index.js";
 import { HttpError, notFound } from "../../lib/http.js";
@@ -90,7 +91,7 @@ const ITEM_FIELDS = [
 ] as const;
 
 export function getItem(id: number): ItemRow {
-  const i = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as ItemRow | undefined;
+  const i = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as unknown as ItemRow | undefined;
   if (!i) throw notFound("Artikel");
   return i;
 }
@@ -125,18 +126,18 @@ export function deleteItem(id: number) {
 // ---------- photos ----------
 
 export function listPhotos(itemId: number): PhotoRow[] {
-  return db.prepare("SELECT * FROM item_photos WHERE item_id = ? ORDER BY position, id").all(itemId) as PhotoRow[];
+  return db.prepare("SELECT * FROM item_photos WHERE item_id = ? ORDER BY position, id").all(itemId) as unknown as PhotoRow[];
 }
 
 export function addPhoto(itemId: number, p: StoredPhoto, originalName: string | null): PhotoRow {
-  const existing = db.prepare("SELECT * FROM item_photos WHERE item_id = ? AND sha256 = ?").get(itemId, p.sha256) as PhotoRow | undefined;
+  const existing = db.prepare("SELECT * FROM item_photos WHERE item_id = ? AND sha256 = ?").get(itemId, p.sha256) as unknown as PhotoRow | undefined;
   if (existing) return existing;
   const pos = (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 p FROM item_photos WHERE item_id = ?").get(itemId) as { p: number }).p;
   const r = db.prepare(`
     INSERT INTO item_photos (item_id, file_name, original_name, mime_type, width, height, size_bytes, sha256, position)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(itemId, p.fileName, originalName, p.mimeType, p.width, p.height, p.sizeBytes, p.sha256, pos);
-  return db.prepare("SELECT * FROM item_photos WHERE id = ?").get(r.lastInsertRowid) as PhotoRow;
+  return db.prepare("SELECT * FROM item_photos WHERE id = ?").get(r.lastInsertRowid) as unknown as PhotoRow;
 }
 
 export function deletePhoto(itemId: number, photoId: number) {
@@ -152,7 +153,7 @@ export function reorderPhotos(itemId: number, ids: number[]) {
 // ---------- listings / history ----------
 
 export function getListing(id: number): ListingRow {
-  const l = db.prepare("SELECT * FROM listings WHERE id = ?").get(id) as ListingRow | undefined;
+  const l = db.prepare("SELECT * FROM listings WHERE id = ?").get(id) as unknown as ListingRow | undefined;
   if (!l) throw notFound("Listing");
   return l;
 }
@@ -237,7 +238,7 @@ export const archiveQuery = z.object({
 
 export function searchItems(q: z.infer<typeof archiveQuery>) {
   const where: string[] = [];
-  const params: Record<string, unknown> = {};
+  const params: Record<string, SQLInputValue> = {};
   if (q.q) {
     where.push("(i.title LIKE @q OR i.description LIKE @q OR i.brand LIKE @q)");
     params.q = `%${q.q}%`;
@@ -284,7 +285,7 @@ export function itemDetail(id: number) {
     SELECT q.*, a.name AS account_name FROM publish_queue q JOIN accounts a ON a.id = q.account_id
     WHERE q.item_id = ? ORDER BY q.scheduled_at DESC
   `).all(id);
-  const sold = (listings as ListingRow[]).filter((l) => l.status === "sold");
+  const sold = (listings as unknown as ListingRow[]).filter((l) => l.status === "sold");
   return {
     item,
     photos: listPhotos(id),
