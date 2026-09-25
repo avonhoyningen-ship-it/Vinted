@@ -10,8 +10,12 @@ if (env.isProduction && !env.dashboardPassword) {
 // On an internet-facing server (Docker, NODE_ENV=production) a longer password is required.
 const minLength = env.isProduction ? 10 : 4;
 if (env.dashboardPassword && env.dashboardPassword.length < minLength) {
-  console.error(`DASHBOARD_PASSWORD ist zu kurz (mindestens ${minLength} Zeichen${env.isProduction ? " auf einem Server im Internet" : ""}).`);
-  process.exit(1);
+  const msg = `DASHBOARD_PASSWORD ist kürzer als ${minLength} Zeichen${env.isProduction ? " – auf einem Server im Internet nicht erlaubt" : " – bitte in .env ein längeres wählen"}.`;
+  if (env.isProduction) {
+    console.error(msg);
+    process.exit(1);
+  }
+  console.warn(`[api] Hinweis: ${msg}`); // at home: warn, but keep the dashboard running
 }
 
 const app = createApp();
