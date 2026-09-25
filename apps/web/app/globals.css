@@ -206,3 +206,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .price-card { width: min(420px, 100%); }
 .price-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .landing-foot { text-align: center; padding: 32px 16px 48px; border-top: 1px solid var(--border); margin-top: 32px; }
+.legal h2 { margin-top: 12px; }
+.legal p, .legal li { line-height: 1.6; }
+.legal ul, .legal ol { padding-left: 20px; }

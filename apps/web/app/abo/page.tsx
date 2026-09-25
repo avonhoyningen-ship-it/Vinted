@@ -3,6 +3,8 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { ErrorBox, PageHead } from "@/components/ui";
 import { api, dateTime } from "@/lib/api";
+import Link from "next/link";
+import { LEGAL } from "@/lib/legal";
 import { PRICE_LABEL } from "@/lib/mode";
 import { useApi } from "@/lib/useApi";
 
@@ -30,12 +32,15 @@ function AboInner() {
   const { data: me, error, reload } = useApi<Me>("/me");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [terms, setTerms] = useState(false);
+  const [startNow, setStartNow] = useState(false);
 
   async function go(path: "/billing/checkout" | "/billing/portal") {
     setBusy(true);
     setErr(null);
     try {
-      const { url } = await api<{ url: string }>(path, { method: "POST" });
+      const json = path === "/billing/checkout" ? { acceptTerms: terms, startNow, termsVersion: LEGAL.version } : undefined;
+      const { url } = await api<{ url: string }>(path, { method: "POST", json });
       window.location.href = url;
     } catch (e) {
       setErr((e as Error).message);
@@ -63,8 +68,19 @@ function AboInner() {
           <div className="price">{priceText(me.price)}</div>
           {!me.active ? (
             <>
-              <p className="muted" style={{ margin: 0 }}>Mit dem Abo schaltest du alle Funktionen frei. Bezahlen mit Karte oder PayPal, monatlich kündbar.</p>
-              <button className="btn primary big" disabled={busy} onClick={() => go("/billing/checkout")} style={{ justifyContent: "center" }}>
+              <p className="muted" style={{ margin: 0 }}>Mit dem Abo schaltest du alle Funktionen frei. Bezahlen mit Karte oder PayPal, verlängert sich monatlich, jederzeit zum Monatsende kündbar.</p>
+              <label className="row small" style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
+                <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>Ich habe die <Link href="/agb" target="_blank">AGB</Link> und die <Link href="/datenschutz" target="_blank">Datenschutzerklärung</Link> gelesen und akzeptiere die AGB.</span>
+              </label>
+              <label className="row small" style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
+                <input type="checkbox" checked={startNow} onChange={(e) => setStartNow(e.target.checked)} style={{ marginTop: 3 }} />
+                <span>
+                  Ich verlange ausdrücklich, dass ihr vor Ablauf der Widerrufsfrist mit der Leistung beginnt. Mir ist bekannt, dass ich bei einem
+                  Widerruf einen anteiligen Betrag für die bis dahin erbrachte Leistung zahle (<Link href="/widerruf" target="_blank">Widerrufsbelehrung</Link>).
+                </span>
+              </label>
+              <button className="btn primary big" disabled={busy || !terms || !startNow} onClick={() => go("/billing/checkout")} style={{ justifyContent: "center" }}>
                 {busy ? "Weiter zu Stripe…" : "Abo abschließen"}
               </button>
             </>

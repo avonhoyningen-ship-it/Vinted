@@ -90,6 +90,7 @@ function webhook(type: string, object: object, secret = WEBHOOK_SECRET) {
 }
 
 const as = (user: string) => ({ Authorization: `Bearer tok_${user}` });
+const CONSENT = { acceptTerms: true, startNow: true, termsVersion: "2026-09-26" };
 const future = Math.floor(Date.now() / 1000) + 30 * 86400;
 
 describe("cloud: login, subscription, access", () => {
@@ -109,7 +110,10 @@ describe("cloud: login, subscription, access", () => {
   });
 
   it("starts Stripe Checkout with card + PayPal, linked to the Clerk user", async () => {
-    const res = await request(app).post("/api/billing/checkout").set(as("alice"));
+    // Without accepting the AGB and the immediate start there is no checkout.
+    const noConsent = await request(app).post("/api/billing/checkout").set(as("alice")).send({ acceptTerms: true, termsVersion: "v1" });
+    expect(noConsent.status).toBe(400);
+    const res = await request(app).post("/api/billing/checkout").set(as("alice")).send(CONSENT);
     expect(res.status).toBe(200);
     expect(res.body.url).toMatch(/^https:\/\/checkout\.stripe\.com\//);
     expect(checkoutCalls[0]).toMatchObject({
@@ -117,6 +121,9 @@ describe("cloud: login, subscription, access", () => {
       line_items: [{ price: "price_monthly", quantity: 1 }], subscription_data: { metadata: { clerk_user_id: "user_alice" } },
       success_url: "https://app.example.com/abo?status=success",
     });
+    const { db: d, withSystem } = await import("../src/db/index.js");
+    expect(await withSystem(() => d.get("SELECT terms_version FROM app_users WHERE id = 'user_alice'"))).toEqual({ terms_version: "2026-09-26" });
+    expect(await withSystem(() => d.get("SELECT terms_accepted_at IS NOT NULL ok FROM app_users WHERE id = 'user_alice'"))).toEqual({ ok: true });
   });
 
   it("rejects webhooks with a wrong signature", async () => {
@@ -137,13 +144,13 @@ describe("cloud: login, subscription, access", () => {
     expect(me.body).toMatchObject({ active: true, subscription: { status: "active", currentPeriodEnd: new Date(future * 1000).toISOString() } });
     expect((await request(app).get("/api/archive").set(as("alice"))).status).toBe(200);
     // Already subscribed → no second checkout
-    expect((await request(app).post("/api/billing/checkout").set(as("alice"))).status).toBe(409);
+    expect((await request(app).post("/api/billing/checkout").set(as("alice")).send(CONSENT)).status).toBe(409);
   });
 
   it("keeps every user's data separate", async () => {
     await request(app).post("/api/archive").set(as("alice")).send({ title: "Sakura Tee von Alice" });
     // Bob subscribes as well
-    await request(app).post("/api/billing/checkout").set(as("bob"));
+    await request(app).post("/api/billing/checkout").set(as("bob")).send(CONSENT);
     subs.set("sub_bob", { id: "sub_bob", status: "active", customer: "cus_2", metadata: { clerk_user_id: "user_bob" }, items: { data: [] } as unknown as Stripe.Subscription["items"] });
     await webhook("customer.subscription.created", subs.get("sub_bob")!);
     const bob = await request(app).get("/api/archive").set(as("bob"));
@@ -183,6 +190,47 @@ describe("cloud: login, subscription, access", () => {
     subs.set("sub_alice", { ...subs.get("sub_alice")!, status: "active" });
     await webhook("customer.subscription.updated", subs.get("sub_alice")!);
     expect((await request(app).get("/api/archive").set(as("alice"))).body.total).toBe(1);
+  });
+
+  it("cancels via the public button (§ 312k BGB) without login and confirms by e-mail", async () => {
+    const mails: { to: string; subject: string; text: string }[] = [];
+    const { setMailSender } = await import("../src/cloud/mail.js");
+    setMailSender(async (m) => { mails.push(m); return true; });
+    const updates: unknown[] = [];
+    Object.assign(stripe.subscriptions, {
+      update: async (id: string, p: unknown) => {
+        updates.push({ id, p });
+        const sub = { ...subs.get(id)!, cancel_at_period_end: true };
+        subs.set(id, sub);
+        return sub;
+      },
+    });
+    // Unknown e-mail: same answer (no account enumeration), stored, mail to that address.
+    const unknown = await request(app).post("/api/public/cancel").send({ name: "Eve", email: "nobody@example.com" });
+    expect(unknown.status).toBe(200);
+    expect(mails.at(-1)).toMatchObject({ to: "nobody@example.com" });
+    expect(mails.at(-1)!.text).toMatch(/kein laufendes Abo/);
+
+    const res = await request(app).post("/api/public/cancel").send({ name: "Alice Muster", email: "ALICE@example.com", kind: "ordentlich" });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBe(unknown.body.message);
+    expect(updates).toEqual([{ id: "sub_alice", p: expect.objectContaining({ cancel_at_period_end: true }) }]);
+    expect(mails.at(-1)!.to).toBe("alice@example.com");
+    expect(mails.at(-1)!.text).toMatch(/Dein Abo endet zum/);
+    const me = await request(app).get("/api/me").set(as("alice"));
+    expect(me.body).toMatchObject({ active: true, subscription: { cancelAtPeriodEnd: true } });
+    const { db: d, withSystem } = await import("../src/db/index.js");
+    expect(await withSystem(() => d.all("SELECT email, result FROM cancellation_requests ORDER BY id"))).toEqual([
+      { email: "nobody@example.com", result: expect.stringMatching(/kein aktives Abo/) },
+      { email: "alice@example.com", result: "zum Periodenende gekündigt" },
+    ]);
+    // Extraordinary cancellation needs a reason
+    expect((await request(app).post("/api/public/cancel").send({ name: "A", email: "a@b.de", kind: "ausserordentlich" })).status).toBe(400);
+    // The requests table is not readable for users
+    expect(await (await import("../src/db/index.js")).withUser("user_alice", () => d.all("SELECT * FROM cancellation_requests").catch(() => "denied"))).toEqual("denied");
+    // undo for the following tests
+    subs.set("sub_alice", { ...subs.get("sub_alice")!, cancel_at_period_end: false });
+    await webhook("customer.subscription.updated", subs.get("sub_alice")!);
   });
 
   it("stores photos in the user's own Supabase folder and serves them via signed URLs", async () => {

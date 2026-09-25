@@ -42,7 +42,7 @@ function tokenOf(req: Request): string | null {
 }
 
 /** Paths reachable without a Clerk session (webhooks and the PC helper authenticate themselves). */
-const PUBLIC = [/^\/health$/, /^\/billing\/webhook$/, /^\/helper\//];
+const PUBLIC = [/^\/health$/, /^\/billing\/webhook$/, /^\/helper\//, /^\/public\//];
 /** Paths a signed-in user may use without an active subscription. */
 const NO_SUBSCRIPTION_NEEDED = [/^\/me$/, /^\/billing\//, /^\/info$/];
 

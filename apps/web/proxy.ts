@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * Cloud: every page except the public ones needs a Clerk login (redirect to
  * /sign-in). The API (/api/…) checks the session itself. Local: no-op.
  */
-const isPublic = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)", "/impressum", "/datenschutz", "/agb", "/api/(.*)"]);
+const isPublic = createRouteMatcher(["/", "/sign-in(.*)", "/sign-up(.*)", "/impressum", "/datenschutz", "/agb", "/widerruf", "/kuendigen", "/api/(.*)"]);
 
 const cloud = clerkMiddleware(async (auth, req) => {
   if (!isPublic(req)) await auth.protect();

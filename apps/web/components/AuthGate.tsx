@@ -8,7 +8,7 @@ import { Nav } from "./Nav";
 import { SaleNotifier } from "./SaleNotifier";
 
 /** Pages without the dashboard shell (cloud: public pages, Clerk; local: password login). */
-const BARE = CLOUD ? [/^\/$/, /^\/sign-(in|up)/, /^\/(impressum|datenschutz|agb)$/] : [/^\/login$/];
+const BARE = CLOUD ? [/^\/$/, /^\/sign-(in|up)/, /^\/(impressum|datenschutz|agb|widerruf|kuendigen)$/] : [/^\/login$/];
 
 /**
  * Local: shows the password login when required. Cloud: Clerk (proxy.ts) already

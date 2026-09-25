@@ -76,6 +76,11 @@ export const env = {
   supabaseUrl: (process.env.SUPABASE_URL || "").replace(/\/$/, "") || null,
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || null,
   supabaseBucket: process.env.SUPABASE_BUCKET || "photos",
+  /** Optional e-mails (cancellation confirmations) via Resend: API key and sender, e.g. "Alex Sales Kit <kontakt@deine-domain.de>". */
+  resendApiKey: process.env.RESEND_API_KEY || null,
+  mailFrom: process.env.MAIL_FROM || null,
+  /** Where cancellation requests are copied to (operator). */
+  operatorEmail: process.env.OPERATOR_EMAIL || null,
   /** Only for tests: override the Vinted sell page URL. */
   vintedSellUrl: process.env.VINTED_SELL_URL || null,
 };

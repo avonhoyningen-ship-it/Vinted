@@ -1,6 +1,8 @@
 import express, { Router } from "express";
 import type Stripe from "stripe";
+import { z } from "zod";
 import { env } from "../config/env.js";
+import { db, nowIso, withSystem } from "../db/index.js";
 import { h, HttpError } from "../lib/http.js";
 import { forgetAccess } from "./auth.js";
 import { getUser, hasAccess, saveSubscription, setCustomer, userByCustomer } from "./users.js";
@@ -77,10 +79,21 @@ export async function meHandler(_req: express.Request, res: express.Response) {
   });
 }
 
-billingRouter.post("/checkout", h(async (_req, res) => {
+const checkoutInput = z.object({
+  /** AGB + Datenschutz accepted (checkbox on /abo) */
+  acceptTerms: z.literal(true, { error: "Bitte AGB und Datenschutzerklärung akzeptieren." }),
+  /** Customer asks to start before the 14-day withdrawal period ends (§ 356 Abs. 4 BGB) */
+  startNow: z.literal(true, { error: "Bitte bestätigen, dass die Leistung sofort beginnen soll." }),
+  termsVersion: z.string().max(40),
+});
+
+billingRouter.post("/checkout", h(async (req, res) => {
   if (!env.stripePriceId) throw new HttpError(503, "STRIPE_PRICE_ID fehlt");
+  const consent = checkoutInput.parse(req.body ?? {});
   const s = await stripe();
   const user = (await getUser(uid(res)))!;
+  await withSystem(() => db.run("UPDATE app_users SET terms_accepted_at = ?, terms_version = ?, updated_at = ? WHERE id = ?",
+    [nowIso(), consent.termsVersion, nowIso(), user.id]));
   if (hasAccess(user) && user.stripe_subscription_id) throw new HttpError(409, "Dein Abo ist bereits aktiv – verwalten kannst du es im Kundenportal.");
   let customer = user.stripe_customer_id;
   if (!customer) {
@@ -96,6 +109,9 @@ billingRouter.post("/checkout", h(async (_req, res) => {
     subscription_data: { metadata: { clerk_user_id: user.id } },
     allow_promotion_codes: true,
     locale: "de",
+    custom_text: {
+      submit: { message: "Du hast AGB und Datenschutzerklärung akzeptiert und verlangst, dass wir sofort mit der Leistung beginnen. Das Abo verlängert sich monatlich und ist jederzeit zum Monatsende kündbar." },
+    },
     success_url: `${env.appUrl}/abo?status=success`,
     cancel_url: `${env.appUrl}/abo?status=cancelled`,
   });

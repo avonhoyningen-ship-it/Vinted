@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LegalLinks } from "@/components/LegalPage";
 import { PRICE_LABEL } from "@/lib/mode";
 
 const FEATURES = [
@@ -67,11 +68,7 @@ export function Landing() {
       </section>
 
       <footer className="landing-foot">
-        <div className="row" style={{ justifyContent: "center", gap: 16 }}>
-          <Link href="/impressum">Impressum</Link>
-          <Link href="/datenschutz">Datenschutz</Link>
-          <Link href="/agb">AGB</Link>
-        </div>
+        <LegalLinks />
         <p className="small muted">Alex Sales Kit ist ein unabhängiges Werkzeug und steht in keiner Verbindung zu Vinted.</p>
       </footer>
     </div>

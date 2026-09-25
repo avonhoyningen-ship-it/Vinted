@@ -44,6 +44,11 @@ export function Nav({ locked = false }: { locked?: boolean }) {
           <span>API nicht erreichbar</span>
         )}
         {CLOUD && <div style={{ marginTop: 6 }}><UserButton /></div>}
+        {CLOUD && (
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+            <Link href="/impressum">Impressum</Link><Link href="/datenschutz">Datenschutz</Link><Link href="/agb">AGB</Link><Link href="/kuendigen">Kündigen</Link>
+          </div>
+        )}
         {me?.authRequired && <button className="btn small" style={{ marginTop: 6 }} onClick={logout}>Abmelden</button>}
       </div>
     </nav>
