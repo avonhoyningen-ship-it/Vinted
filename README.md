@@ -21,7 +21,7 @@ npm run dev          # API auf :4000, Dashboard auf http://localhost:3000
 `npm run setup` erzeugt auch ein **Login-Passwort** und zeigt es an (änderbar in `.env` unter `DASHBOARD_PASSWORD`).
 
 **Windows:** Einfach **`Dashboard starten.bat`** doppelt anklicken – installiert beim ersten Mal alles,
-startet das Dashboard und öffnet den Browser. Tipp: Rechtsklick → „Senden an“ → „Desktop (Verknüpfung erstellen)“.
+startet das Dashboard und öffnet den Browser. Für ein Desktop-Icon mit dem ASK-Logo einmal **`Desktop-Verknuepfung erstellen.bat`** doppelklicken.
 
 Produktion lokal: `npm run build && npm start`. Tests: `npm test`.
 

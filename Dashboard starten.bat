@@ -1,6 +1,6 @@
 @echo off
-rem Startet das Vinted Dashboard per Doppelklick (Windows).
-title Vinted Dashboard
+rem Startet Alex Sales Kit (Vinted Dashboard) per Doppelklick (Windows).
+title Alex Sales Kit
 cd /d "%~dp0"
 
 where node >nul 2>nul

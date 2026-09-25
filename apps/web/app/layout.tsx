@@ -4,9 +4,9 @@ import { ToastProvider } from "@/components/Toasts";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Vinted Dashboard",
+  title: "Alex Sales Kit",
   description: "Verwaltung mehrerer eigener Vinted-Accounts",
-  appleWebApp: { capable: true, title: "Vinted", statusBarStyle: "default" },
+  appleWebApp: { capable: true, title: "ASK", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

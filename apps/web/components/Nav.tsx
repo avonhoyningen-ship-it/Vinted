@@ -21,7 +21,7 @@ export function Nav() {
   const logout = () => api("/auth/logout", { method: "POST" }).then(() => { window.location.href = "/login"; });
   return (
     <nav className="sidebar">
-      <div className="brand"><span className="brand-dot" /> Vinted Dashboard</div>
+      <div className="brand"><img src="/icon.svg" alt="" width={24} height={24} style={{ borderRadius: 6 }} /> Alex Sales Kit</div>
       {LINKS.map((l) => {
         const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
         return (

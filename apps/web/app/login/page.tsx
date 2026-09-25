@@ -26,7 +26,7 @@ function LoginForm() {
 
   return (
     <form className="card stack login-card" onSubmit={submit}>
-      <h1 className="row" style={{ fontSize: 18 }}><span className="brand-dot" /> Vinted Dashboard</h1>
+      <h1 className="row" style={{ fontSize: 18 }}><img src="/icon.svg" alt="" width={28} height={28} style={{ borderRadius: 7 }} /> Alex Sales Kit</h1>
       <label className="field">Passwort
         <input type="password" autoComplete="current-password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} />
       </label>
