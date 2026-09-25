@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { AssistStartDialog } from "@/components/AssistStartDialog";
 import { EnqueueDialog } from "@/components/EnqueueDialog";
 import { FolderUpload } from "@/components/FolderUpload";
 import { PriceCell } from "@/components/PriceCell";
@@ -152,6 +153,7 @@ function DraftsTab() {
   const [enqueue, setEnqueue] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
   const [bulkPrice, setBulkPrice] = useState("");
+  const [assist, setAssist] = useState(false);
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const withSuggestion = (data ?? []).filter((d) => selected.includes(d.id) && !d.price_confirmed && d.price_suggested_cents);
 
@@ -197,7 +199,9 @@ function DraftsTab() {
           onKeyDown={(e) => e.key === "Enter" && selected.length && setPriceForSelection()} aria-label="Preis für Auswahl" />
         <button className="btn" disabled={!selected.length || !bulkPrice} onClick={setPriceForSelection}>Preis für Auswahl setzen</button>
         <button className="btn" disabled={!withSuggestion.length} onClick={acceptSelection}>✓ Vorschläge übernehmen ({withSuggestion.length})</button>
-        {info.data?.canPublish && <button className="btn primary" disabled={!selected.length} onClick={() => setEnqueue(true)}>In Warteschlange…</button>}
+        {info.data?.canPublish
+          ? <button className="btn primary" disabled={!selected.length} onClick={() => setEnqueue(true)}>In Warteschlange…</button>
+          : <button className="btn primary" disabled={!selected.length} onClick={() => setAssist(true)}>🤖 Bei Vinted vorbereiten ({selected.length})</button>}
       </div>
       {data && !data.length && <div className="card"><Empty>Keine Entwürfe. <Link href="/listings?tab=new">Neue Artikel erstellen →</Link></Empty></div>}
       {!!data?.length && (
@@ -228,6 +232,7 @@ function DraftsTab() {
           </table>
         </div>
       )}
+      {assist && <AssistStartDialog itemIds={selected} onClose={() => setAssist(false)} onStarted={() => { setAssist(false); setSelected([]); }} />}
       {enqueue && <EnqueueDialog itemIds={selected} onClose={() => setEnqueue(false)} onDone={() => { setEnqueue(false); setSelected([]); void reload(); }} />}
     </div>
   );

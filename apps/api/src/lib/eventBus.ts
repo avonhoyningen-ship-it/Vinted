@@ -6,7 +6,20 @@ export type DashboardEvent =
   | { type: "message"; accountId: number; user: string; preview: string }
   | { type: "published"; accountId: number; itemId: number; title: string }
   | { type: "queue_failed"; accountId: number; itemId: number; error: string }
-  | { type: "account_status"; accountId: number; status: string; error?: string | null };
+  | { type: "account_status"; accountId: number; status: string; error?: string | null }
+  | { type: "assist"; status: AssistStatus };
+
+export interface AssistStatus {
+  state: "idle" | "preparing" | "waiting" | "error";
+  itemId: number | null;
+  title: string | null;
+  position: number;
+  total: number;
+  filled: string[];
+  missing: string[];
+  message: string | null;
+  done: { itemId: number; title: string; url: string }[];
+}
 
 class Bus extends EventEmitter {
   publish(e: DashboardEvent) {

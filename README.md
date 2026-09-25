@@ -52,6 +52,7 @@ Start dieser Version automatisch aus der Datenbank gelöscht.
 | `/accounts` | Accounts verbinden (Länder-Domain + Session-Token), Status, Listings, Verkäufe, Nachrichten, Follower |
 | `/listings` | **Ordner hochladen** (alle Kleidungsstücke in einem Ordner → KI ordnet die Fotos der Reihe nach den Artikeln zu, Gruppen korrigierbar; oder ein Ordner pro Artikel mit Maßen im Namen; KI dreht die Fotos, schreibt Titel, Stichpunkte, Hashtags, Preis und legt den Entwurf an), einzelne Fotos, Entwürfe, Warteschlange, aktive Listings, Textvorlagen |
 | `/listings` → Preise | **Lernende Preise:** Regeln (Marke/Kategorie/Stichwort → Preis), gelernte Preise aus ✓-Bestätigungen, Mehrfachauswahl, eigenen Eingaben und Verkäufen; neue Artikel bekommen einen Vorschlag mit Begründung, ein ✓ übernimmt ihn |
+| Einstell-Assistent | **🤖 Bei Vinted vorbereiten:** füllt im Vinted-Chrome (Port 9222, „Chrome fuer Vinted starten.bat“) Fotos, Titel, Beschreibung und Preis aus; du klickst „Hochladen“, der Artikel wird erkannt, verknüpft und der nächste vorbereitet |
 | `/archive` | Alle je eingestellten Artikel, filterbar nach Account/Status/Kategorie/Marke; Bearbeiten, Fotos, Verlauf, Reupload |
 | `/automations` | Regeln „Wenn [Ereignis] dann [Aktion] nach [Zeitspanne]“ + Aktionsprotokoll |
 | `/stats` | Umsatz/Verkäufe pro Zeitraum und Account (gestapelte Balken), Ø Verkaufsdauer, Top-Marken/Kategorien |

@@ -55,6 +55,9 @@ export function SaleNotifier() {
       const e = JSON.parse((ev as MessageEvent).data);
       toast({ kind: "error", text: <>Veröffentlichung fehlgeschlagen: {e.error}</> });
     });
+    es.addEventListener("assist", (ev) => {
+      window.dispatchEvent(new CustomEvent("assist", { detail: JSON.parse((ev as MessageEvent).data).status }));
+    });
     es.addEventListener("account_status", (ev) => {
       const e = JSON.parse((ev as MessageEvent).data);
       if (e.status === "error") toast({ kind: "error", text: <>Account-Fehler: {e.error}</> });

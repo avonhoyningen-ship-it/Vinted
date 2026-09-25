@@ -5,6 +5,7 @@ import { requireAuth } from "./lib/auth.js";
 import { errorHandler } from "./lib/http.js";
 import { accountsRouter } from "./modules/accounts/routes.js";
 import { archiveRouter } from "./modules/archive/routes.js";
+import { assistRouter } from "./modules/assist/routes.js";
 import { automationsRouter } from "./modules/automations/routes.js";
 import { listingsRouter } from "./modules/listings/routes.js";
 import { pricingRouter } from "./modules/pricing/routes.js";
@@ -34,6 +35,7 @@ export function createApp() {
   app.use("/api/automations", automationsRouter);
   app.use("/api/stats", statsRouter);
   app.use("/api/pricing", pricingRouter);
+  app.use("/api/assist", assistRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
   app.use(errorHandler);
   return app;

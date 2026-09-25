@@ -47,4 +47,8 @@ export const env = {
   /** Minimum gap between two HTTP requests to Vinted per account. */
   vintedMinRequestGapMs: int("VINTED_MIN_REQUEST_GAP_MS", 4000, 1000),
   disableWorkers: process.env.DISABLE_WORKERS === "true",
+  /** Chrome started with --remote-debugging-port (see "Chrome fuer Vinted starten.bat"). */
+  chromeDebugUrl: str("CHROME_DEBUG_URL", "http://127.0.0.1:9222"),
+  /** Only for tests: override the Vinted sell page URL. */
+  vintedSellUrl: process.env.VINTED_SELL_URL || null,
 };

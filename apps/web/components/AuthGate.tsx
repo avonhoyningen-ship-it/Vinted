@@ -2,6 +2,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { AssistBanner } from "./AssistBanner";
 import { Nav } from "./Nav";
 import { SaleNotifier } from "./SaleNotifier";
 
@@ -31,7 +32,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <>
       <div className="shell">
         <Nav />
-        <main className="main">{children}</main>
+        <main className="main"><AssistBanner />{children}</main>
       </div>
       <SaleNotifier />
     </>

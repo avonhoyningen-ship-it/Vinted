@@ -4,6 +4,7 @@ import { api, API_URL, CONDITIONS, centsToInput } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { Account, Item } from "@/lib/types";
 import { useToast } from "./Toasts";
+import { AssistStartDialog } from "./AssistStartDialog";
 import { ErrorBox, Modal } from "./ui";
 
 /** Copies text; falls back to a hidden textarea where the Clipboard API is unavailable (http in LAN). */
@@ -34,6 +35,7 @@ export function VintedPostHelper({ item, photoCount, onClose, onDone }: { item: 
   const [url, setUrl] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [assist, setAssist] = useState(false);
   const account = accounts.data?.find((a) => String(a.id) === accountId) ?? accounts.data?.[0];
   const domain = account?.domain ?? "vinted.de";
   const price = item.price_confirmed && item.price_cents ? item.price_cents : item.price_suggested_cents;
@@ -63,12 +65,16 @@ export function VintedPostHelper({ item, photoCount, onClose, onDone }: { item: 
     </div>
   ) : null;
 
+  if (assist) return <AssistStartDialog itemIds={[item.id]} onClose={() => setAssist(false)} onStarted={onClose} />;
+
   return (
     <Modal title="Bei Vinted einstellen" onClose={onClose}>
       <div className="stack">
-        <div className="small muted">
-          Vinted bietet keine offizielle Schnittstelle zum Einstellen – mit dieser Hilfe geht es in einer Minute von Hand.
+        <div className="card row" style={{ padding: 12, background: "var(--surface-2)" }}>
+          <span style={{ flex: 1 }}><strong>Automatisch:</strong> Das Dashboard füllt das Formular in deinem Vinted-Chrome aus – du klickst nur noch „Hochladen“.</span>
+          <button className="btn primary" onClick={() => setAssist(true)}>🤖 Im Vinted-Chrome ausfüllen</button>
         </div>
+        <div className="small muted">Oder von Hand:</div>
 
         <strong>1. Fotos &amp; Vinted öffnen</strong>
         <div className="row">
