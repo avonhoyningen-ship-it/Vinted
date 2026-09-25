@@ -4,8 +4,7 @@ import { db, nowIso } from "../../db/index.js";
 import { h, HttpError, idParam, notFound } from "../../lib/http.js";
 import { getSetting } from "../../lib/settings.js";
 import { upload, uploadThumbs } from "../../lib/upload.js";
-import { photoPath, rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
-import fs from "node:fs";
+import { readPhoto, rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
 import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
 import { confirmPrice, examplesForPrompt, refreshSuggestion } from "../pricing/engine.js";
 import { loadRules, ruleBrand, ruleParcel } from "./brandRules.js";
@@ -125,7 +124,7 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
 /** Turns every photo of an item upright (dedicated orientation check). */
 async function orientPhotos(itemId: number) {
   const photos = await listPhotos(itemId);
-  const degrees = await detectOrientations(photos.map((p) => fs.readFileSync(photoPath(p.file_name))));
+  const degrees = await detectOrientations(await Promise.all(photos.map((p) => readPhoto(p.file_name))));
   for (const [i, deg] of degrees.entries()) {
     if (deg) await replacePhotoFile(photos[i]!.id, await rotateStoredPhoto(photos[i]!.file_name, deg));
   }

@@ -72,6 +72,10 @@ export const env = {
   stripePriceId: process.env.STRIPE_PRICE_ID || null,
   /** Payment methods offered in Stripe Checkout (PayPal must be activated in the Stripe dashboard). */
   stripePaymentMethods: (process.env.STRIPE_PAYMENT_METHODS || "card,paypal").split(",").map((s) => s.trim()).filter(Boolean),
+  /** Supabase Storage for photos (cloud): project URL and service role key (Project Settings → API). */
+  supabaseUrl: (process.env.SUPABASE_URL || "").replace(/\/$/, "") || null,
+  supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY || null,
+  supabaseBucket: process.env.SUPABASE_BUCKET || "photos",
   /** Only for tests: override the Vinted sell page URL. */
   vintedSellUrl: process.env.VINTED_SELL_URL || null,
 };

@@ -4,7 +4,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { env } from "../../config/env.js";
 import { HttpError } from "../../lib/http.js";
-import { photoPath } from "../../storage/photos.js";
+import { readPhoto } from "../../storage/photos.js";
 import { CONDITIONS, type PhotoRow } from "../archive/repo.js";
 
 export const ListingSuggestion = z.object({
@@ -64,7 +64,7 @@ export interface GenerateOptions {
 
 /** Small JPEG for the model (faster, cheaper); full-size files stay untouched. */
 async function modelImage(p: PhotoRow): Promise<Anthropic.ImageBlockParam> {
-  const buf = await sharp(photoPath(p.file_name)).resize({ width: 1024, height: 1024, fit: "inside" }).jpeg({ quality: 80 }).toBuffer();
+  const buf = await sharp(await readPhoto(p.file_name)).resize({ width: 1024, height: 1024, fit: "inside" }).jpeg({ quality: 80 }).toBuffer();
   return { type: "image", source: { type: "base64", media_type: "image/jpeg", data: buf.toString("base64") } };
 }
 

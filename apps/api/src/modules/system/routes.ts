@@ -7,7 +7,7 @@ import { eventBus, type DashboardEvent } from "../../lib/eventBus.js";
 import { h, HttpError } from "../../lib/http.js";
 import { applyBrandRules } from "../listings/brandRules.js";
 import { DEFAULT_SETTINGS, getSettings, setSettings } from "../../lib/settings.js";
-import { photoPath } from "../../storage/photos.js";
+import { photoStore, safeName } from "../../storage/store.js";
 import { aiEnabled } from "../listings/ai.js";
 import { vintedClient } from "../../vinted/vintedClient.js";
 import { pollAccounts } from "../../workers/scheduler.js";
@@ -75,12 +75,26 @@ systemRouter.get("/events/stream", (req, res) => {
   });
 });
 
-systemRouter.get("/photos/:file", (req, res) => {
-  const file = photoPath(req.params.file);
-  if (!fs.existsSync(file)) return res.status(404).end();
-  res.setHeader("cache-control", "private, max-age=31536000, immutable");
-  res.sendFile(file);
-});
+systemRouter.get("/photos/:file", h(async (req, res) => {
+  const store = photoStore();
+  let name: string;
+  try {
+    name = safeName(String(req.params.file));
+  } catch {
+    return res.status(404).end();
+  }
+  if (store.localPath) {
+    const file = store.localPath(name);
+    if (!fs.existsSync(file)) return res.status(404).end();
+    res.setHeader("cache-control", "private, max-age=31536000, immutable");
+    return res.sendFile(file);
+  }
+  // Cloud: the browser loads the photo straight from the user's private storage folder.
+  const url = await store.signedUrl!(name, 3600).catch(() => null);
+  if (!url) return res.status(404).end();
+  res.setHeader("cache-control", "private, max-age=3000");
+  res.redirect(302, url);
+}));
 
 systemRouter.get("/dashboard", h(async (_req, res) => {
   const today = new Date().toISOString().slice(0, 10);

@@ -1,11 +1,6 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import sharp from "sharp";
-import { env } from "../config/env.js";
-
-export const PHOTO_DIR = path.join(env.storageDir, "photos");
-if (env.storageDir !== ":memory:") fs.mkdirSync(PHOTO_DIR, { recursive: true });
+import { photoStore } from "./store.js";
 
 export interface StoredPhoto {
   fileName: string;
@@ -31,14 +26,13 @@ export async function storePhoto(input: Buffer): Promise<StoredPhoto> {
     .toBuffer({ resolveWithObject: true });
   const sha256 = crypto.createHash("sha256").update(out.data).digest("hex");
   const fileName = `${sha256}.jpg`;
-  const target = path.join(PHOTO_DIR, fileName);
-  if (!fs.existsSync(target)) fs.writeFileSync(target, out.data);
+  await photoStore().put(fileName, out.data, "image/jpeg");
   return { fileName, mimeType: "image/jpeg", width: out.info.width, height: out.info.height, sizeBytes: out.info.size, sha256 };
 }
 
 /** Rotates a stored photo (clockwise) and stores the result as a new file. */
 export async function rotateStoredPhoto(fileName: string, degrees: 90 | 180 | 270): Promise<StoredPhoto> {
-  const buf = await sharp(photoPath(fileName)).rotate(degrees).toBuffer();
+  const buf = await sharp(await readPhoto(fileName)).rotate(degrees).toBuffer();
   return storePhoto(buf);
 }
 
@@ -49,11 +43,14 @@ export async function storePhotoFromUrl(url: string): Promise<StoredPhoto> {
   return storePhoto(Buffer.from(await res.arrayBuffer()));
 }
 
-export function photoPath(fileName: string) {
-  const safe = path.basename(fileName);
-  return path.join(PHOTO_DIR, safe);
+/** The stored JPEG (local file or Supabase Storage). */
+export function readPhoto(fileName: string): Promise<Buffer> {
+  return photoStore().get(fileName);
 }
 
-export function readPhotoBase64(fileName: string) {
-  return fs.readFileSync(photoPath(fileName)).toString("base64");
+/** Path on this PC – only in local mode (posting assistant uploads files from disk). */
+export function photoPath(fileName: string): string {
+  const s = photoStore();
+  if (!s.localPath) throw new Error("Fotos liegen in der Cloud – kein lokaler Dateipfad");
+  return s.localPath(fileName);
 }

@@ -51,8 +51,37 @@ beforeAll(async () => {
   const { setStripe } = await import("../src/cloud/billing.js");
   setStripe(stripe);
 
+  // Fake Supabase Storage: bucket + objects in memory.
+  const http = await import("node:http");
+  storage = http.createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    if (req.headers.authorization !== "Bearer service_role_key") return res.writeHead(401).end();
+    const url = decodeURIComponent(req.url ?? "");
+    let m;
+    if (req.method === "POST" && url === "/storage/v1/bucket") return res.writeHead(200).end("{}");
+    if (req.method === "POST" && (m = /^\/storage\/v1\/object\/photos\/(.+)$/.exec(url))) {
+      objects.set(m[1]!, Buffer.concat(chunks));
+      return res.writeHead(200).end("{}");
+    }
+    if (req.method === "GET" && (m = /^\/storage\/v1\/object\/authenticated\/photos\/(.+)$/.exec(url))) {
+      return objects.has(m[1]!) ? res.writeHead(200).end(objects.get(m[1]!)) : res.writeHead(404).end();
+    }
+    if (req.method === "POST" && (m = /^\/storage\/v1\/object\/sign\/photos\/(.+)$/.exec(url))) {
+      if (!objects.has(m[1]!)) return res.writeHead(400).end("{}");
+      return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ signedURL: `/object/sign/photos/${m[1]}?token=t` }));
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise<void>((r) => storage.listen(0, "127.0.0.1", r));
+  const { setPhotoStore, supabaseStore } = await import("../src/storage/store.js");
+  setPhotoStore(supabaseStore({ url: `http://127.0.0.1:${(storage.address() as { port: number }).port}`, serviceKey: "service_role_key", bucket: "photos" }));
+
   app = (await import("../src/app.js")).createApp();
 }, 60_000);
+
+let storage: import("node:http").Server;
+const objects = new Map<string, Buffer>();
 
 function webhook(type: string, object: object, secret = WEBHOOK_SECRET) {
   const payload = JSON.stringify({ id: `evt_${Math.random()}`, object: "event", type, data: { object } });
@@ -154,6 +183,27 @@ describe("cloud: login, subscription, access", () => {
     subs.set("sub_alice", { ...subs.get("sub_alice")!, status: "active" });
     await webhook("customer.subscription.updated", subs.get("sub_alice")!);
     expect((await request(app).get("/api/archive").set(as("alice"))).body.total).toBe(1);
+  });
+
+  it("stores photos in the user's own Supabase folder and serves them via signed URLs", async () => {
+    const sharp = (await import("sharp")).default;
+    const jpg = await sharp({ create: { width: 40, height: 40, channels: 3, background: "#e33" } }).jpeg().toBuffer();
+    const draft = await request(app).post("/api/listings/drafts").set(as("alice")).attach("photos", jpg, "a.jpg").field("data", JSON.stringify({ title: "Rotes Shirt" }));
+    expect(draft.status).toBe(201);
+    const file = draft.body.photos[0].file_name as string;
+    expect([...objects.keys()]).toContain(`user_alice/${file}`);
+
+    const own = await request(app).get(`/api/photos/${file}`).set(as("alice"));
+    expect(own.status).toBe(302);
+    expect(own.headers.location).toMatch(new RegExp(`/storage/v1/object/sign/photos/user_alice/${file}\\?token=`));
+    // Bob knows the file name but only ever looks into his own folder.
+    expect((await request(app).get(`/api/photos/${file}`).set(as("bob"))).status).toBe(404);
+    expect((await request(app).get("/api/photos/..%2F..%2Fetc%2Fpasswd").set(as("alice"))).status).toBe(404);
+
+    // ZIP download reads the photos back from storage
+    const zip = await request(app).get(`/api/archive/${draft.body.item.id}/photos.zip`).set(as("alice"));
+    expect(zip.status).toBe(200);
+    expect(zip.headers["content-type"]).toBe("application/zip");
   });
 
   it("does not offer the local posting assistant in the cloud", async () => {
