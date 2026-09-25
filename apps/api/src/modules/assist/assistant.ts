@@ -107,6 +107,31 @@ async function fill(page: Page, candidates: Locator[], value: string, timeoutMs 
   return true;
 }
 
+/**
+ * Vinted's price field formats while typing ("24,50 €") and Chrome offers old prices
+ * as autofill – so type the price key by key, close the autofill list and check the result.
+ */
+async function fillPrice(page: Page, candidates: Locator[], value: string): Promise<boolean> {
+  const el = await firstVisible(candidates);
+  if (!el) return false;
+  const digits = (v: string) => v.replace(/[^0-9]/g, "").replace(/^0+/, "");
+  const want = digits(value.includes(",") ? value : `${value},00`);
+  const ok = async () => {
+    const got = digits(await el.inputValue().catch(() => ""));
+    return got === want || got === digits(value);
+  };
+  await el.click();
+  await el.fill(value);
+  await page.keyboard.press("Escape").catch(() => {}); // close Chrome's autofill list
+  if (await ok()) return true;
+  await el.click();
+  await el.press("ControlOrMeta+a").catch(() => {});
+  await el.press("Backspace").catch(() => {});
+  await el.pressSequentially(value, { delay: 60 });
+  await page.keyboard.press("Escape").catch(() => {});
+  return ok();
+}
+
 // ---------- dropdowns (Kategorie, Marke, Größe, Zustand, Farbe) ----------
 
 const CONDITION_LABELS: Record<string, string> = {
@@ -194,55 +219,56 @@ async function pickCategory(page: Page, category: string): Promise<boolean> {
   return path.length > 1 && pickDropdown(page, /^kategorie$/i, [path[path.length - 1]!]);
 }
 
-/** Is a radio checked whose card starts with `size` (or are there no radios at all)? */
-function parcelChecked(page: Page, size: string): Promise<boolean> {
-  return page.evaluate((size) => {
+const PARCEL_SIZES: ParcelSize[] = ["Klein", "Mittel", "Groß"];
+
+/** Is this text one parcel card (has a line "Klein" and no line of another size)? */
+function isParcelCard(text: string, size: ParcelSize): boolean {
+  const lines = text.split("\n").map((l) => l.trim().toLowerCase());
+  return lines.includes(size.toLowerCase()) && !PARCEL_SIZES.some((o) => o !== size && lines.includes(o.toLowerCase()));
+}
+
+/** Is the radio of the `size` card checked (or are there no radios at all)? */
+function parcelChecked(page: Page, size: ParcelSize): Promise<boolean> {
+  return page.evaluate(({ size, sizes }) => {
     const radios = [...document.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
     if (!radios.length) return true;
     return radios.some((r) => {
       if (!r.checked) return false;
-      for (let el: HTMLElement | null = r, i = 0; el && i < 5; el = el.parentElement, i++) {
-        const t = (el.innerText || el.textContent || "").trim().toLowerCase();
-        if (t) return t.startsWith(size.toLowerCase());
+      for (let el: HTMLElement | null = r.parentElement, i = 0; el && i < 6; el = el.parentElement, i++) {
+        const lines = (el.innerText || "").split("\n").map((l) => l.trim().toLowerCase());
+        const hits = sizes.filter((x) => lines.includes(x.toLowerCase()));
+        if (hits.length) return hits.length === 1 && hits[0] === size;
       }
       return false;
     });
-  }, size).catch(() => false);
+  }, { size, sizes: PARCEL_SIZES }).catch(() => false);
 }
 
-/** Parcel size ("Klein", "Mittel", "Groß") – choice cards below the "Paketgröße" heading. */
+/**
+ * Parcel size ("Klein", "Mittel", "Groß") – cards under "Versand" ("Bitte wähle eine
+ * Sendungsgröße aus"); Vinted preselects its recommendation, usually "Mittel".
+ */
 async function pickParcel(page: Page, size: ParcelSize): Promise<boolean> {
-  const headingText = /^\s*paketgröße/i;
+  const headingText = /sendungsgröße|paketgröße|versandgröße/i;
   const heading = page.getByText(headingText).first();
   if (!(await heading.count().catch(() => 0))) return false;
   await heading.scrollIntoViewIfNeeded().catch(() => {});
   await page.waitForTimeout(700);
-  const section = page.locator("div, section, fieldset").filter({ has: page.getByText(headingText) }).filter({ hasText: size }).last();
-  const scope: Page | Locator = (await section.count().catch(() => 0)) ? section : page;
-  const starts = new RegExp(`^\\s*${esc(size)}(\\s|$)`, "i");
-  const cards = [
-    scope.locator('[data-testid*="package" i], [data-testid*="parcel" i]').filter({ hasText: starts }),
-    scope.getByRole("radio", { name: starts }),
-    scope.locator("label, [role=radio], li").filter({ hasText: starts }),
-  ];
-  for (const c of cards) {
-    const n = await c.count().catch(() => 0);
-    for (let i = n - 1; i >= 0; i--) {
-      const el = c.nth(i);
-      const text = (await el.innerText().catch(() => "")).trim();
-      if (text && !starts.test(text)) continue; // e.g. the whole section
-      await el.click({ timeout: 3000 }).catch(() => el.check({ force: true, timeout: 3000 }).catch(() => {}));
-      await page.waitForTimeout(400);
-      if (await parcelChecked(page, size)) return true;
-      await el.locator('input[type="radio"]').first().check({ force: true, timeout: 2000 }).catch(() => {});
-      if (await parcelChecked(page, size)) return true;
-    }
+  if (await parcelChecked(page, size)) return true;
+  const cards = page.locator('[data-testid*="package" i], [data-testid*="parcel" i], [data-testid*="shipping" i], label, [role=radio], li, div')
+    .filter({ hasText: size }).filter({ has: page.locator('input[type="radio"], [role=radio]') });
+  const n = await cards.count().catch(() => 0);
+  for (let i = n - 1; i >= 0; i--) { // innermost first
+    const card = cards.nth(i);
+    if (!isParcelCard(await card.innerText().catch(() => ""), size)) continue;
+    await card.click({ timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(400);
+    if (await parcelChecked(page, size)) return true;
+    await card.locator('input[type="radio"]').first().check({ force: true, timeout: 2000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    if (await parcelChecked(page, size)) return true;
   }
-  const option = await findOption(scope, size);
-  if (!option) return false;
-  await option.click();
-  await page.waitForTimeout(400);
-  return parcelChecked(page, size);
+  return false;
 }
 
 /** Opens the sell page in the Vinted-Chrome and fills what can be filled. */
@@ -294,7 +320,7 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
   for (const [label, value, candidates] of fields) {
     if (!value) continue;
     try {
-      if (await fill(page, candidates, value)) filled.push(label);
+      if (await (label === "Preis" ? fillPrice(page, candidates, value) : fill(page, candidates, value))) filled.push(label);
       else missing.push(label);
     } catch {
       missing.push(label);

@@ -26,10 +26,14 @@ const SELL_PAGE = `<!doctype html><html><body>
   <div class="row" data-f="cond"><span>Zustand</span><input readonly id="cond"></div>
   <div class="row" data-f="color"><span>Farbe</span><input readonly id="color"></div>
   <div class="row" data-f="mat"><span>Material (empfohlen)</span><input readonly id="mat"></div>
-  <h3>Paketgröße</h3>
-  <label class="parcel"><input type="radio" name="pkg" value="s"><span>Klein</span><small>Für Artikel, die in einen großen Umschlag passen.</small></label>
-  <label class="parcel"><input type="radio" name="pkg" value="m"><span>Mittel</span><small>Für Artikel, die in einen Schuhkarton passen.</small></label>
-  <label class="parcel"><input type="radio" name="pkg" value="l"><span>Groß</span><small>Für Artikel, die in einen Umzugskarton passen.</small></label>
+  <h2>Versand</h2>
+  <div class="shipping">
+    <div>Bitte wähle eine Sendungsgröße aus</div>
+    <div class="cell" data-v="s"><div><div>Klein</div><div>Für Artikel, die in einen großen Umschlag passen.</div></div><input type="radio" name="pkg" value="s"></div>
+    <div class="cell" data-v="m"><div><span>Empfohlen</span><div>Mittel</div><div>Für Artikel, die in einen Schuhkarton passen.</div><a href="#">Infos zu Größen und Entschädigungen</a></div><input type="radio" name="pkg" value="m" checked></div>
+    <div class="cell" data-v="l"><div><div>Groß</div><div>Für Artikel, die in einen Umzugskarton passen.</div></div><input type="radio" name="pkg" value="l"></div>
+  </div>
+  <script>document.querySelectorAll(".cell").forEach((c) => c.addEventListener("click", () => { c.querySelector("input").checked = true; }));</script>
   <div id="panel" style="display:none"></div>
   <button id="upload" onclick="location.href='/items/' + (5550000 + t.value.length) + '-item'">Hochladen</button>
   <script>
