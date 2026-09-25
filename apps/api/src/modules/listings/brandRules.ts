@@ -2,36 +2,46 @@ import { db, nowIso } from "../../db/index.js";
 import { getSetting } from "../../lib/settings.js";
 
 /** Parses "T-Shirt=Graphic Tee" lines into rules (case-insensitive keyword match). */
-export function parseBrandRules(text: string): { keyword: string; brand: string }[] {
+export function parseRules(text: string): { keyword: string; value: string }[] {
   return text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith("#") && l.includes("="))
     .map((l) => {
       const i = l.indexOf("=");
-      return { keyword: l.slice(0, i).trim(), brand: l.slice(i + 1).trim() };
+      return { keyword: l.slice(0, i).trim(), value: l.slice(i + 1).trim() };
     })
-    .filter((r) => r.keyword && r.brand);
+    .filter((r) => r.keyword && r.value);
 }
+export const parseBrandRules = parseRules;
+
+type RuleItem = { title: string; category: string | null; description?: string | null };
 
 /** Lowercase words; hyphens inside words are dropped so "T-Shirts" → "tshirts". */
 const words = (s: string) => s.toLowerCase().replace(/(\p{L})-(\p{L})/gu, "$1$2").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
 /**
- * Brand forced by a rule for this item (e.g. every T-shirt → "Graphic Tee"), else null.
- * A rule's keyword may list alternatives ("T-Shirt, Tee, Shirt"); each must match a whole
- * word (plural "s" allowed) in the title, the category or the description's hashtags.
+ * Value of the first rule that matches the item, else null. A rule's keyword may list
+ * alternatives ("T-Shirt, Tee, Shirt"); each must match a whole word (plural "s" allowed)
+ * in the title, the category or the description's hashtags.
  */
-export function ruleBrand(
-  item: { title: string; category: string | null; description?: string | null },
-  rules = parseBrandRules(getSetting("brand.rules")),
-): string | null {
+export function matchRule(item: RuleItem, rules: { keyword: string; value: string }[]): string | null {
   const hashtags = (item.description ?? "").match(/#[\p{L}\p{N}-]+/gu)?.join(" ") ?? "";
   const have = new Set(words(`${item.title} ${item.category ?? ""} ${hashtags}`));
   return rules.find((r) => r.keyword.split(/[,|]/).map((k) => words(k).join("")).filter(Boolean)
-    .some((k) => have.has(k) || have.has(`${k}s`)))?.brand ?? null;
+    .some((k) => have.has(k) || have.has(`${k}s`)))?.value ?? null;
+}
+
+/** Brand forced by a rule for this item (e.g. every T-shirt → "Graphic Tee"), else null. */
+export function ruleBrand(item: RuleItem, rules = parseRules(getSetting("brand.rules"))): string | null {
+  return matchRule(item, rules);
+}
+
+/** Vinted parcel size for this item ("Klein" / "Mittel" / "Groß"), else null. */
+export function ruleParcel(item: RuleItem, rules = parseRules(getSetting("parcel.rules"))): string | null {
+  return matchRule(item, rules);
 }
 
 /** Re-applies the brand rules to every unsold item (drafts, archive, queue); returns how many changed. */
 export function applyBrandRules(): number {
-  const rules = parseBrandRules(getSetting("brand.rules"));
+  const rules = parseRules(getSetting("brand.rules"));
   if (!rules.length) return 0;
   const items = db.prepare("SELECT id, title, category, description, brand FROM items WHERE status <> 'sold'").all() as
     { id: number; title: string; category: string | null; description: string; brand: string | null }[];

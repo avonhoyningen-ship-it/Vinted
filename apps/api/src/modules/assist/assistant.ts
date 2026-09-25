@@ -6,7 +6,7 @@ import { HttpError } from "../../lib/http.js";
 import { photoPath } from "../../storage/photos.js";
 import { getAccount } from "../accounts/repo.js";
 import { createListing, getItem, listPhotos } from "../archive/repo.js";
-import { parseMeasurements, ruleBrand } from "../listings/brandRules.js";
+import { parseMeasurements, ruleBrand, ruleParcel } from "../listings/brandRules.js";
 import { confirmPrice } from "../pricing/engine.js";
 
 /**
@@ -89,7 +89,7 @@ async function fill(page: Page, candidates: Locator[], value: string, timeoutMs 
   return true;
 }
 
-// ---------- dropdowns (Kategorie, Marke, Größe, Zustand, Farbe, Material) ----------
+// ---------- dropdowns (Kategorie, Marke, Größe, Zustand, Farbe) ----------
 
 const CONDITION_LABELS: Record<string, string> = {
   new_with_tags: "Neu mit Etikett", new_without_tags: "Neu ohne Etikett", very_good: "Sehr gut", good: "Gut", satisfactory: "Zufriedenstellend",
@@ -176,6 +176,18 @@ async function pickCategory(page: Page, category: string): Promise<boolean> {
   return path.length > 1 && pickDropdown(page, /^kategorie$/i, [path[path.length - 1]!]);
 }
 
+/** Parcel size ("Klein", "Mittel", "Groß") – a list of choices below the "Paketgröße" heading. */
+async function pickParcel(page: Page, size: string): Promise<boolean> {
+  const heading = page.getByText(/^\s*paketgröße/i).first();
+  if (!(await heading.count().catch(() => 0))) return false;
+  await heading.scrollIntoViewIfNeeded().catch(() => {});
+  await page.waitForTimeout(500);
+  const option = await findOption(page, size);
+  if (!option) return false;
+  await option.click();
+  return true;
+}
+
 /** Opens the sell page in the Vinted-Chrome and fills what can be filled. */
 async function prepare(job: Job): Promise<Page> {
   const item = getItem(job.itemId);
@@ -241,7 +253,6 @@ async function prepare(job: Job): Promise<Page> {
     ["Größe", () => pickDropdown(page, /^größe$/i, [item.size ?? ""], true), !!item.size],
     ["Zustand", () => pickDropdown(page, /^zustand$/i, [CONDITION_LABELS[item.condition ?? ""] ?? ""]), !!CONDITION_LABELS[item.condition ?? ""]],
     ["Farbe", () => pickDropdown(page, /^farbe$/i, [item.color ?? ""]), !!item.color],
-    ["Material", () => pickDropdown(page, /^material/i, [item.material ?? ""]), !!item.material],
   ];
   for (const [label, run, available] of dropdowns) {
     if (!available) { missing.push(label); continue; }
@@ -261,6 +272,12 @@ async function prepare(job: Job): Promise<Page> {
   for (const [label, value, candidates] of measure) {
     if (value === null) continue;
     if (await fill(page, candidates, String(value), 3000).catch(() => false)) filled.push(label);
+  }
+  // Material stays empty on purpose; parcel size comes from the rules (T-shirts small, pullovers medium).
+  const parcel = ruleParcel(item);
+  if (parcel) {
+    if (await pickParcel(page, parcel).catch(() => false)) filled.push(`Paketgröße ${parcel}`);
+    else missing.push("Paketgröße");
   }
   const notFound = missing.some((m) => ["Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand"].includes(m));
 

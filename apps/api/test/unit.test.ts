@@ -76,6 +76,15 @@ describe("brand rules and measurements", async () => {
     expect(ruleBrand({ title: "Nike Sweatshirt grau", category: "Pullover" }, rules)).toBeNull();
     expect(ruleBrand({ title: "Teddy Jacke", category: null }, rules)).toBeNull();
   });
+  it("picks the parcel size: pullovers medium, T-shirts small", async () => {
+    const { parseRules, ruleParcel } = await import("../src/modules/listings/brandRules.js");
+    const { DEFAULT_SETTINGS } = await import("../src/lib/settings.js");
+    const rules = parseRules(DEFAULT_SETTINGS["parcel.rules"]);
+    expect(ruleParcel({ title: "Sakura Tee weiß", category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" }, rules)).toBe("Klein");
+    expect(ruleParcel({ title: "Vintage Hoodie", category: null }, rules)).toBe("Mittel");
+    expect(ruleParcel({ title: "Nike Sweatshirt grau", category: null }, rules)).toBe("Mittel");
+    expect(ruleParcel({ title: "Levi's Jeans", category: "Hosen" }, rules)).toBeNull();
+  });
   it("reads measurements", () => {
     expect(parseMeasurements("Breite 43 Länge 65")).toEqual({ width: 43, length: 65 });
     expect(parseMeasurements("Laenge 70 Breite 55")).toEqual({ width: 55, length: 70 });

@@ -26,6 +26,10 @@ const SELL_PAGE = `<!doctype html><html><body>
   <div class="row" data-f="cond"><span>Zustand</span><input readonly id="cond"></div>
   <div class="row" data-f="color"><span>Farbe</span><input readonly id="color"></div>
   <div class="row" data-f="mat"><span>Material (empfohlen)</span><input readonly id="mat"></div>
+  <h3>Paketgröße</h3>
+  <label class="parcel"><input type="radio" name="pkg" value="s"><span>Klein</span><small>Für Artikel, die in einen großen Umschlag passen.</small></label>
+  <label class="parcel"><input type="radio" name="pkg" value="m"><span>Mittel</span><small>Für Artikel, die in einen Schuhkarton passen.</small></label>
+  <label class="parcel"><input type="radio" name="pkg" value="l"><span>Groß</span><small>Für Artikel, die in einen Umzugskarton passen.</small></label>
   <div id="panel" style="display:none"></div>
   <button id="upload" onclick="location.href='/items/5550001-sakura-tee'">Hochladen</button>
   <script>
@@ -127,7 +131,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       const s = (await request(app).get("/api/assist/status")).body;
       return s.state === "waiting" && s;
     });
-    expect(waiting.filled).toEqual(["2 Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand", "Farbe", "Material", "Schulterweite", "Länge"]);
+    expect(waiting.filled).toEqual(["2 Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand", "Farbe", "Schulterweite", "Länge", "Paketgröße Klein"]);
     expect(waiting.fields).toEqual([]);
 
     // Look at the form like the seller would, then click "Hochladen".
@@ -144,7 +148,8 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     expect(await page.inputValue("#size")).toBe("M / 38");
     expect(await page.inputValue("#cond")).toBe("Sehr gut");
     expect(await page.inputValue("#color")).toBe("Weiß");
-    expect(await page.inputValue("#mat")).toBe("Baumwolle");
+    expect(await page.inputValue("#mat")).toBe(""); // material is left empty on purpose
+    expect(await page.locator("input[name=pkg]:checked").getAttribute("value")).toBe("s");
     expect(await page.inputValue("#w")).toBe("43");
     expect(await page.inputValue("#l")).toBe("65");
     await page.click("#upload");
