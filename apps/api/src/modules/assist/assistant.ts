@@ -139,9 +139,14 @@ async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = 
   for (const seg of path) {
     let option = await findOption(page, seg, prefix);
     if (!option) {
-      const focused = page.locator("input:focus, textarea:focus");
-      if ((await focused.count()) && (await focused.isEditable().catch(() => false))) {
-        await focused.fill(seg);
+      // Vinted's list has a search box (brands: thousands of entries) – the focused field or any visible one.
+      let search = page.locator("input:focus, textarea:focus");
+      if (!(await search.count()) || !(await search.isEditable().catch(() => false))) {
+        search = page.locator('input[type="search"], input[placeholder*="such" i], input[placeholder*="search" i], input[placeholder*="marke" i]')
+          .filter({ visible: true }).first();
+      }
+      if ((await search.count()) && (await search.isEditable().catch(() => false))) {
+        await search.fill(seg);
         await page.waitForTimeout(1500);
         option = await findOption(page, seg, prefix);
       }

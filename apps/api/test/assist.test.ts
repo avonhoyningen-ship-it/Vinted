@@ -19,7 +19,7 @@ const SELL_PAGE = `<!doctype html><html><body>
   <div id="later"></div>
   <script>setTimeout(() => { later.innerHTML = '<label for="p">Preis</label><input id="p" name="price">'; }, 2000)</script>
   <div class="row" data-f="cat"><span>Kategorie</span><input readonly id="cat"></div>
-  <div class="row" data-f="brand"><span>Marke</span><input readonly id="brand"></div>
+  <div class="row" data-f="brand"><span>Marke</span><input readonly id="brand" value="Shein"></div>
   <div class="row" data-f="size"><span>Größe</span><input readonly id="size"></div>
   <div><span>Maße (empfohlen)</span><input id="w" placeholder="Schulterweite (bspw. 20)"><input id="l" placeholder="Länge (bspw. 20)"></div>
   <div class="row" data-f="cond"><span>Zustand</span><input readonly id="cond"></div>
@@ -116,7 +116,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       .field("data", JSON.stringify({
         title: "Sakura Tee", description: "- 🌸 Print\n- 📦 Ich versende fix", price_cents: 2450,
         category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts", size: "M", condition: "very_good", color: "Weiß",
-        material: "Baumwolle", measurements: "Breite 43 Länge 65",
+        material: "Baumwolle", brand: "Shein", measurements: "Breite 43 Länge 65",
       }))).body.item;
 
     const start = await request(app).post("/api/assist/start").send({ itemIds: [draft.id], accountId: acc });

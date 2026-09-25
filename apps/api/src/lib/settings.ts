@@ -13,8 +13,8 @@ export const DEFAULT_SETTINGS = {
   "ai.language": "de",
   /** Instructions for AI listing texts (Einstellungen → KI-Prompt). */
   "ai.listingPrompt": DEFAULT_LISTING_PROMPT,
-  /** Brand rules, one per line: "<word in title/category>=<brand>", e.g. "T-Shirt=Graphic Tee". */
-  "brand.rules": "T-Shirt=Graphic Tee",
+  /** Brand rules, one per line: "<words in title/category/hashtags>=<brand>", e.g. "T-Shirt, Tee=Graphic Tee". */
+  "brand.rules": "T-Shirt, Tee, Shirt=Graphic Tee",
 };
 export type SettingKey = keyof typeof DEFAULT_SETTINGS;
 

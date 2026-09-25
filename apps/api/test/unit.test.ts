@@ -68,6 +68,14 @@ describe("brand rules and measurements", async () => {
     expect(ruleBrand({ title: "Nike Hoodie", category: null }, rules)).toBe("Vintage Hoodie");
     expect(ruleBrand({ title: "Levi's Jeans", category: "Hosen" }, rules)).toBeNull();
   });
+  it("matches alternatives, plurals and hashtags as whole words", () => {
+    const rules = parseBrandRules("T-Shirt, Tee, Shirt=Graphic Tee");
+    expect(ruleBrand({ title: "Sakura Anime Tee weiß M", category: null }, rules)).toBe("Graphic Tee");
+    expect(ruleBrand({ title: "Japan Print Oberteil", category: null, description: "Schön\n#tshirt #japancore" }, rules)).toBe("Graphic Tee");
+    expect(ruleBrand({ title: "Oversized Shirt", category: null }, rules)).toBe("Graphic Tee");
+    expect(ruleBrand({ title: "Nike Sweatshirt grau", category: "Pullover" }, rules)).toBeNull();
+    expect(ruleBrand({ title: "Teddy Jacke", category: null }, rules)).toBeNull();
+  });
   it("reads measurements", () => {
     expect(parseMeasurements("Breite 43 Länge 65")).toEqual({ width: 43, length: 65 });
     expect(parseMeasurements("Laenge 70 Breite 55")).toEqual({ width: 55, length: 70 });

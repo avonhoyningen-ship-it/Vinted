@@ -127,7 +127,7 @@ function BrandRules({ value, onSave }: { value: string; onSave: (v: string) => P
       <h2>Markenregeln</h2>
       <div className="small muted">
         Eine Regel pro Zeile: <code>Wort im Titel oder in der Kategorie=Marke</code>. Die Regel gewinnt immer gegen die KI und wird
-        beim Ausfüllen im Vinted-Chrome verwendet. Beispiel: <code>T-Shirt=Graphic Tee</code>
+        beim Ausfüllen im Vinted-Chrome verwendet. Mehrere Wörter mit Komma trennen, z. B. <code>T-Shirt, Tee, Shirt=Graphic Tee</code>. Gilt auch für bestehende Entwürfe.
       </div>
       <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }} />
       <div className="row"><div className="spacer" />

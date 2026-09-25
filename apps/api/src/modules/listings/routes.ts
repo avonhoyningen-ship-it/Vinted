@@ -95,7 +95,7 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
       description: keep.description || description.slice(0, 5000),
       category: keep.category ?? s.category,
       // Brand rules win over the AI (e.g. every T-shirt → "Graphic Tee").
-      brand: keep.brand ?? ruleBrand({ title: s.title, category: s.category }) ?? s.brand,
+      brand: keep.brand ?? ruleBrand({ title: s.title, category: s.category, description }) ?? s.brand,
       size: keep.size ?? s.size,
       condition: keep.condition ?? s.condition,
       color: keep.color ?? s.color,

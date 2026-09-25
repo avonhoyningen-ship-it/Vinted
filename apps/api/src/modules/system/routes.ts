@@ -6,6 +6,7 @@ import { env } from "../../config/env.js";
 import { db } from "../../db/index.js";
 import { eventBus, type DashboardEvent } from "../../lib/eventBus.js";
 import { h, HttpError } from "../../lib/http.js";
+import { applyBrandRules } from "../listings/brandRules.js";
 import { DEFAULT_SETTINGS, getSettings, setSettings } from "../../lib/settings.js";
 import { photoPath } from "../../storage/photos.js";
 import { aiEnabled } from "../listings/ai.js";
@@ -40,7 +41,9 @@ systemRouter.put("/settings", h((req, res) => {
   const body = z.record(z.string(), z.unknown()).parse(req.body);
   for (const k of Object.keys(body)) if (!(k in DEFAULT_SETTINGS)) throw new HttpError(400, `Unbekannte Einstellung ${k}`);
   try {
-    res.json(setSettings(body));
+    const saved = setSettings(body);
+    if ("brand.rules" in body) applyBrandRules();
+    res.json(saved);
   } catch (e) {
     throw new HttpError(400, (e as Error).message);
   }
