@@ -9,7 +9,7 @@ import { useApi } from "@/lib/useApi";
 interface Settings {
   "sound.preset": SoundPreset; "sound.volume": number; "sound.enabled": boolean;
   "notifications.desktop": boolean; "notifications.confetti": boolean;
-  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string;
+  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string; "brand.rules": string;
 }
 interface Info { aiEnabled: boolean; aiModel: string; pollIntervalMinutes: number; publishIntervalMinutes: number }
 
@@ -75,6 +75,8 @@ export default function SettingsPage() {
           </label>
         </div>
 
+        <BrandRules value={data["brand.rules"]} onSave={(v) => update({ "brand.rules": v })} />
+
         <PromptEditor value={data["ai.listingPrompt"]} onSave={(v) => update({ "ai.listingPrompt": v })} />
 
         {info.data && (
@@ -113,6 +115,23 @@ function PromptEditor({ value, onSave }: { value: string; onSave: (v: string) =>
         {text !== value && <span className="small muted">Ungespeichert</span>}
         <button className="btn primary" disabled={text === value || text.trim().length < 20} onClick={() => onSave(text)}>Prompt speichern</button>
       </div>
+    </div>
+  );
+}
+
+function BrandRules({ value, onSave }: { value: string; onSave: (v: string) => Promise<void> }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <div className="card stack">
+      <h2>Markenregeln</h2>
+      <div className="small muted">
+        Eine Regel pro Zeile: <code>Wort im Titel oder in der Kategorie=Marke</code>. Die Regel gewinnt immer gegen die KI und wird
+        beim Ausfüllen im Vinted-Chrome verwendet. Beispiel: <code>T-Shirt=Graphic Tee</code>
+      </div>
+      <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }} />
+      <div className="row"><div className="spacer" />
+        <button className="btn primary" disabled={text === value} onClick={() => onSave(text)}>Speichern</button></div>
     </div>
   );
 }

@@ -58,3 +58,21 @@ describe("rate limiter", () => {
     expect(waits[0]).toBeGreaterThan(900);
   });
 });
+
+describe("brand rules and measurements", async () => {
+  const { parseBrandRules, ruleBrand, parseMeasurements } = await import("../src/modules/listings/brandRules.js");
+  it("applies 'T-Shirt=Graphic Tee' to T-shirts only", () => {
+    const rules = parseBrandRules("T-Shirt=Graphic Tee\n# Kommentar\nHoodie = Vintage Hoodie");
+    expect(ruleBrand({ title: "Sakura Cherry Blossom T-Shirt weiß", category: null }, rules)).toBe("Graphic Tee");
+    expect(ruleBrand({ title: "Print Tee", category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" }, rules)).toBe("Graphic Tee");
+    expect(ruleBrand({ title: "Nike Hoodie", category: null }, rules)).toBe("Vintage Hoodie");
+    expect(ruleBrand({ title: "Levi's Jeans", category: "Hosen" }, rules)).toBeNull();
+  });
+  it("reads measurements", () => {
+    expect(parseMeasurements("Breite 43 Länge 65")).toEqual({ width: 43, length: 65 });
+    expect(parseMeasurements("Laenge 70 Breite 55")).toEqual({ width: 55, length: 70 });
+    expect(parseMeasurements("Sakura T-Shirt Gr. M 43x65")).toEqual({ width: 43, length: 65 });
+    expect(parseMeasurements("L68 B52")).toEqual({ width: 52, length: 68 });
+    expect(parseMeasurements(null)).toEqual({ width: null, length: null });
+  });
+});

@@ -18,7 +18,43 @@ const SELL_PAGE = `<!doctype html><html><body>
   <label for="d">Beschreibung</label><textarea id="d" name="description"></textarea>
   <div id="later"></div>
   <script>setTimeout(() => { later.innerHTML = '<label for="p">Preis</label><input id="p" name="price">'; }, 2000)</script>
+  <div class="row" data-f="cat"><span>Kategorie</span><input readonly id="cat"></div>
+  <div class="row" data-f="brand"><span>Marke</span><input readonly id="brand"></div>
+  <div class="row" data-f="size"><span>Größe</span><input readonly id="size"></div>
+  <div><span>Maße (empfohlen)</span><input id="w" placeholder="Schulterweite (bspw. 20)"><input id="l" placeholder="Länge (bspw. 20)"></div>
+  <div class="row" data-f="cond"><span>Zustand</span><input readonly id="cond"></div>
+  <div class="row" data-f="color"><span>Farbe</span><input readonly id="color"></div>
+  <div class="row" data-f="mat"><span>Material (empfohlen)</span><input readonly id="mat"></div>
+  <div id="panel" style="display:none"></div>
   <button id="upload" onclick="location.href='/items/5550001-sakura-tee'">Hochladen</button>
+  <script>
+    const trees = {
+      cat: { "Damen": { "Kleidung": ["Kleider"] }, "Herren": { "Kleidung": { "T-Shirts": ["Einfarbige T-Shirts", "Bedruckte T-Shirts"] } } },
+      brand: ["Nike", "Graphic Tee", "Hysteric Glamour"], size: ["S / 36", "M / 38", "L / 40"],
+      cond: ["Neu mit Etikett", "Sehr gut", "Gut"], color: ["Schwarz", "Weiß"], mat: ["Polyester", "Baumwolle"],
+    };
+    let active = null;
+    document.querySelectorAll(".row input").forEach((inp) => inp.addEventListener("click", () => {
+      active = { f: inp.parentElement.dataset.f, inp, node: trees[inp.parentElement.dataset.f] };
+      panel.innerHTML = ""; panel.style.display = "block";
+      if (active.f === "brand") { // brand: search first, options only after typing
+        const s = document.createElement("input"); s.placeholder = "Marke suchen"; panel.appendChild(s); s.focus(); s.oninput = () => list(s.value);
+      } else list("");
+    }));
+    function list(q) {
+      panel.querySelectorAll("ul").forEach((u) => u.remove());
+      const ul = document.createElement("ul"); panel.appendChild(ul);
+      const n = active.node, keys = Array.isArray(n) ? n : Object.keys(n);
+      keys.filter((k) => active.f !== "brand" || (q && k.toLowerCase().includes(q.toLowerCase()))).forEach((k) => {
+        const li = document.createElement("li"); li.textContent = k; li.onclick = () => choose(k); ul.appendChild(li);
+      });
+    }
+    function choose(k) {
+      const n = active.node;
+      if (!Array.isArray(n)) { active.node = n[k]; list(""); return; }
+      active.inp.value = k; panel.style.display = "none";
+    }
+  </script>
 </body></html>`;
 
 let server: http.Server;
@@ -39,7 +75,7 @@ async function waitFor<T>(fn: () => Promise<T | undefined | false>, ms = 20_000)
 beforeAll(async () => {
   if (!hasChrome) return;
   server = http.createServer((req, res) => {
-    res.setHeader("content-type", "text/html");
+    res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(req.url?.startsWith("/items/new") ? SELL_PAGE : "<html><body>Artikel online</body></html>");
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -77,7 +113,11 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     const photo = (c: string) => sharp({ create: { width: 40, height: 50, channels: 3, background: c } }).jpeg().toBuffer();
     const draft = (await request(app).post("/api/listings/drafts")
       .attach("photos", await photo("#a33"), "1.jpg").attach("photos", await photo("#3a3"), "2.jpg")
-      .field("data", JSON.stringify({ title: "Sakura Tee", description: "- 🌸 Print\n- 📦 Ich versende fix", price_cents: 2450 }))).body.item;
+      .field("data", JSON.stringify({
+        title: "Sakura Tee", description: "- 🌸 Print\n- 📦 Ich versende fix", price_cents: 2450,
+        category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts", size: "M", condition: "very_good", color: "Weiß",
+        material: "Baumwolle", measurements: "Breite 43 Länge 65",
+      }))).body.item;
 
     const start = await request(app).post("/api/assist/start").send({ itemIds: [draft.id], accountId: acc });
     expect(start.status).toBe(200);
@@ -86,7 +126,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       const s = (await request(app).get("/api/assist/status")).body;
       return s.state === "waiting" && s;
     });
-    expect(waiting.filled).toEqual(["2 Fotos", "Titel", "Beschreibung", "Preis"]);
+    expect(waiting.filled).toEqual(["2 Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand", "Farbe", "Material", "Schulterweite", "Länge"]);
     expect(waiting.fields).toEqual([]);
 
     // Look at the form like the seller would, then click "Hochladen".
@@ -96,6 +136,15 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     expect(await page.inputValue("#d")).toBe("- 🌸 Print\n- 📦 Ich versende fix");
     expect(await page.inputValue("#p")).toBe("24,50");
     expect(await page.evaluate(() => (document.getElementById("photos") as HTMLInputElement).files!.length)).toBe(2);
+    // Dropdowns: category path, brand from the T-shirt rule (via search), size by prefix, condition, color, material
+    expect(await page.inputValue("#cat")).toBe("Bedruckte T-Shirts");
+    expect(await page.inputValue("#brand")).toBe("Graphic Tee");
+    expect(await page.inputValue("#size")).toBe("M / 38");
+    expect(await page.inputValue("#cond")).toBe("Sehr gut");
+    expect(await page.inputValue("#color")).toBe("Weiß");
+    expect(await page.inputValue("#mat")).toBe("Baumwolle");
+    expect(await page.inputValue("#w")).toBe("43");
+    expect(await page.inputValue("#l")).toBe("65");
     await page.click("#upload");
 
     const done = await waitFor(async () => {

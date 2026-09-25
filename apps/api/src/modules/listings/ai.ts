@@ -11,12 +11,12 @@ export const ListingSuggestion = z.object({
   title: z.string().describe("Vinted-Titel, max. 90 Zeichen, normale Schreibweise"),
   bullets: z.array(z.string()).describe("Beschreibung als Stichpunkte; jeder beginnt mit '- ' und enthält einen Emoji"),
   hashtags: z.array(z.string()).describe("15–20 Hashtags, jeweils mit #, ohne Leerzeichen"),
-  category: z.string().describe("Vinted-Kategoriepfad, z. B. 'Herren > Kleidung > Jacken'"),
+  category: z.string().describe("Vollständiger Vinted-Kategoriepfad mit Vinteds deutschen Bezeichnungen, z. B. 'Herren > Kleidung > T-Shirts > Bedruckte T-Shirts'"),
   brand: z.string().nullable().describe("Marke falls erkennbar, sonst null"),
   size: z.string().nullable().describe("Größe laut Etikett oder Verkäufer, sonst null"),
   condition: z.enum(CONDITIONS),
-  color: z.string().nullable(),
-  material: z.string().nullable(),
+  color: z.string().nullable().describe("Hauptfarbe mit Vinteds Farbnamen, z. B. Schwarz, Weiß, Grau, Blau, Rot, Grün, Beige, Braun"),
+  material: z.string().nullable().describe("Material mit Vinteds Bezeichnung, z. B. Baumwolle, Polyester, Denim, Wolle, Leder – nur wenn erkennbar"),
   suggested_price_eur: z.number().describe("Ambitionierter, aber realistischer Vinted-Preis in EUR"),
   price_reasoning: z.string().describe("Ein Satz Begründung für den Preis"),
   rotations: z.array(z.object({
@@ -48,6 +48,7 @@ Technische Vorgaben (immer einhalten):
   4. Etikett/Tag (Marke, Größe, Pflegeetikett) ganz am Ende
 - "bullets" enthält nur die Stichpunkte der Beschreibung (ohne Titel, ohne Hashtags).
 - Hashtags gehören ausschließlich in "hashtags".
+- "category" ist der komplette Vinted-Kategoriepfad vom Hauptbereich bis zur untersten Ebene, so wie er in Vinteds Kategorieauswahl heißt (z. B. "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" oder "Damen > Kleidung > Pullover & Sweater > Hoodies").
 - Maße und Größe nur übernehmen, wenn sie vom Verkäufer stammen oder klar auf einem Etikett lesbar sind.`;
 
 export interface GenerateOptions {

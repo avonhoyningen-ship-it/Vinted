@@ -8,6 +8,7 @@ import { photoPath, rotateStoredPhoto, storePhoto } from "../../storage/photos.j
 import fs from "node:fs";
 import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
 import { confirmPrice, examplesForPrompt, refreshSuggestion } from "../pricing/engine.js";
+import { ruleBrand } from "./brandRules.js";
 import { aiEnabled, composeDescription, detectOrientations, generateListing, groupingThumb, groupPhotosInOrder, normalizeOrder, type Rotation } from "./ai.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
@@ -93,7 +94,8 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
       title: keep.title || s.title.slice(0, 200),
       description: keep.description || description.slice(0, 5000),
       category: keep.category ?? s.category,
-      brand: keep.brand ?? s.brand,
+      // Brand rules win over the AI (e.g. every T-shirt → "Graphic Tee").
+      brand: keep.brand ?? ruleBrand({ title: s.title, category: s.category }) ?? s.brand,
       size: keep.size ?? s.size,
       condition: keep.condition ?? s.condition,
       color: keep.color ?? s.color,

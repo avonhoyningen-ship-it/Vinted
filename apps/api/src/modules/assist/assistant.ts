@@ -6,6 +6,7 @@ import { HttpError } from "../../lib/http.js";
 import { photoPath } from "../../storage/photos.js";
 import { getAccount } from "../accounts/repo.js";
 import { createListing, getItem, listPhotos } from "../archive/repo.js";
+import { parseMeasurements, ruleBrand } from "../listings/brandRules.js";
 import { confirmPrice } from "../pricing/engine.js";
 
 /**
@@ -80,12 +81,89 @@ async function describeFields(page: Page): Promise<string[]> {
   }).catch(() => []);
 }
 
-async function fill(page: Page, candidates: Locator[], value: string): Promise<boolean> {
-  const el = await firstVisible(candidates);
+async function fill(page: Page, candidates: Locator[], value: string, timeoutMs = 20_000): Promise<boolean> {
+  const el = await firstVisible(candidates, timeoutMs);
   if (!el) return false;
   await el.click();
   await el.fill(value);
   return true;
+}
+
+// ---------- dropdowns (Kategorie, Marke, Größe, Zustand, Farbe, Material) ----------
+
+const CONDITION_LABELS: Record<string, string> = {
+  new_with_tags: "Neu mit Etikett", new_without_tags: "Neu ohne Etikett", very_good: "Sehr gut", good: "Gut", satisfactory: "Zufriedenstellend",
+};
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Innermost block that contains the field label and an input – one row of Vinted's form. */
+function fieldRow(page: Page, label: RegExp) {
+  return page.locator("div, li, section").filter({ has: page.getByText(label) }).filter({ has: page.locator("input") }).last();
+}
+
+/** A visible, clickable element whose own text is exactly `text` (or starts with it for sizes). */
+async function findOption(page: Page, text: string, prefix = false): Promise<Locator | null> {
+  const re = prefix ? new RegExp(`^\\s*${esc(text)}(\\s|/|\\(|$)`, "i") : new RegExp(`^\\s*${esc(text)}\\s*$`, "i");
+  const candidates = [
+    page.getByRole("option", { name: re }), page.getByRole("radio", { name: re }), page.getByRole("checkbox", { name: re }),
+    page.getByRole("button", { name: re }), page.locator("li, label, [role=button], [role=option], span, div, p").filter({ hasText: re }),
+  ];
+  for (const c of candidates) {
+    const n = await c.count().catch(() => 0);
+    for (let i = n - 1; i >= 0; i--) { // innermost / last first
+      const el = c.nth(i);
+      if (await el.isVisible().catch(() => false)) {
+        const own = (await el.innerText().catch(() => "")).trim();
+        if (re.test(own)) return el;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Opens a dropdown row and clicks through `path` (e.g. category levels). If an
+ * option isn't visible, types it into the focused search field first.
+ * Leaves values alone that Vinted already filled correctly.
+ */
+async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = false): Promise<boolean> {
+  const row = fieldRow(page, label);
+  if (!(await row.count().catch(() => 0))) return false;
+  const input = row.locator("input").first();
+  const current = (await input.inputValue().catch(() => "")).trim().toLowerCase();
+  const target = path[path.length - 1]!.toLowerCase();
+  if (current && (current === target || (prefix && current.startsWith(target)))) return true;
+
+  await input.click({ timeout: 5000 });
+  await page.waitForTimeout(700);
+  for (const seg of path) {
+    let option = await findOption(page, seg, prefix);
+    if (!option) {
+      const focused = page.locator("input:focus, textarea:focus");
+      if ((await focused.count()) && (await focused.isEditable().catch(() => false))) {
+        await focused.fill(seg);
+        await page.waitForTimeout(1500);
+        option = await findOption(page, seg, prefix);
+      }
+    }
+    if (!option) {
+      await page.keyboard.press("Escape").catch(() => {});
+      return false;
+    }
+    await option.click();
+    await page.waitForTimeout(700);
+  }
+  await page.keyboard.press("Escape").catch(() => {});
+  const value = (await input.inputValue().catch(() => "")).trim().toLowerCase();
+  return value.includes(target) || (prefix && value.startsWith(target));
+}
+
+/** Category: first the full path (e.g. Herren > Kleidung > T-Shirts > Bedruckte T-Shirts), then just the last level via search. */
+async function pickCategory(page: Page, category: string): Promise<boolean> {
+  const path = category.split(">").map((x) => x.trim()).filter(Boolean);
+  if (!path.length) return false;
+  if (await pickDropdown(page, /^kategorie$/i, path)) return true;
+  return path.length > 1 && pickDropdown(page, /^kategorie$/i, [path[path.length - 1]!]);
 }
 
 /** Opens the sell page in the Vinted-Chrome and fills what can be filled. */
@@ -144,8 +222,37 @@ async function prepare(job: Job): Promise<Page> {
     }
   }
   if (!price) missing.push("Preis");
-  const notFound = missing.length > 0;
-  missing.push("Kategorie, Marke, Größe, Zustand prüfen");
+
+  // Dropdowns and measurements. Each one is best effort – the seller checks before uploading.
+  const brand = ruleBrand(item) ?? item.brand;
+  const dropdowns: [string, () => Promise<boolean>, boolean][] = [
+    ["Kategorie", () => pickCategory(page, item.category ?? ""), !!item.category],
+    ["Marke", () => pickDropdown(page, /^marke$/i, [brand ?? ""]), !!brand],
+    ["Größe", () => pickDropdown(page, /^größe$/i, [item.size ?? ""], true), !!item.size],
+    ["Zustand", () => pickDropdown(page, /^zustand$/i, [CONDITION_LABELS[item.condition ?? ""] ?? ""]), !!CONDITION_LABELS[item.condition ?? ""]],
+    ["Farbe", () => pickDropdown(page, /^farbe$/i, [item.color ?? ""]), !!item.color],
+    ["Material", () => pickDropdown(page, /^material/i, [item.material ?? ""]), !!item.material],
+  ];
+  for (const [label, run, available] of dropdowns) {
+    if (!available) { missing.push(label); continue; }
+    try {
+      if (await run()) filled.push(label);
+      else missing.push(label);
+    } catch {
+      missing.push(label);
+      await page.keyboard.press("Escape").catch(() => {});
+    }
+  }
+  const { width, length } = parseMeasurements(item.measurements ?? item.title);
+  const measure: [string, number | null, Locator[]][] = [
+    ["Schulterweite", width, [page.getByPlaceholder(/schulterweite|breite/i), page.getByLabel(/schulterweite|breite/i)]],
+    ["Länge", length, [page.getByPlaceholder(/^länge/i), page.getByLabel(/^länge/i)]],
+  ];
+  for (const [label, value, candidates] of measure) {
+    if (value === null) continue;
+    if (await fill(page, candidates, String(value), 3000).catch(() => false)) filled.push(label);
+  }
+  const notFound = missing.some((m) => ["Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand"].includes(m));
 
   setStatus({
     state: "waiting", filled, missing,
