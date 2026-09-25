@@ -134,16 +134,21 @@ async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = 
   const target = path[path.length - 1]!.toLowerCase();
   if (current && (current === target || (prefix && current.startsWith(target)))) return true;
 
+  // Mark every input that exists before opening, so only the dropdown's own search box is used –
+  // never Vinted's site search in the header.
+  await page.evaluate(() => document.querySelectorAll("input, textarea").forEach((e) => {
+    if ((e as HTMLElement).getClientRects().length) e.setAttribute("data-ask-pre", "");
+  })).catch(() => {});
   await input.click({ timeout: 5000 });
   await page.waitForTimeout(700);
   for (const seg of path) {
     let option = await findOption(page, seg, prefix);
     if (!option) {
       // Vinted's list has a search box (brands: thousands of entries) – the focused field or any visible one.
-      let search = page.locator("input:focus, textarea:focus");
+      const own = ":not([data-ask-pre]):not(header *):not(nav *):not([role=search] *)";
+      let search = page.locator(`input${own}:focus`);
       if (!(await search.count()) || !(await search.isEditable().catch(() => false))) {
-        search = page.locator('input[type="search"], input[placeholder*="such" i], input[placeholder*="search" i], input[placeholder*="marke" i]')
-          .filter({ visible: true }).first();
+        search = page.locator(`input${own}:not([type=hidden]):not([type=checkbox]):not([type=radio])`).filter({ visible: true }).first();
       }
       if ((await search.count()) && (await search.isEditable().catch(() => false))) {
         await search.fill(seg);

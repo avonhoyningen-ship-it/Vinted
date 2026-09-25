@@ -13,6 +13,7 @@ const hasChrome = fs.existsSync(CHROME);
 
 // A stand-in for Vinted's sell page: file input, title, description, price (rendered late) and an upload button.
 const SELL_PAGE = `<!doctype html><html><body>
+  <header><input id="sitesearch" placeholder="Artikel suchen"></header>
   <input type="file" multiple accept="image/*" id="photos" style="display:none">
   <label for="t">Titel</label><input id="t" data-testid="title--input">
   <label for="d">Beschreibung</label><textarea id="d" name="description"></textarea>
@@ -38,7 +39,7 @@ const SELL_PAGE = `<!doctype html><html><body>
       active = { f: inp.parentElement.dataset.f, inp, node: trees[inp.parentElement.dataset.f] };
       panel.innerHTML = ""; panel.style.display = "block";
       if (active.f === "brand") { // brand: search first, options only after typing
-        const s = document.createElement("input"); s.placeholder = "Marke suchen"; panel.appendChild(s); s.focus(); s.oninput = () => list(s.value);
+        const s = document.createElement("input"); s.placeholder = "Marke suchen"; panel.appendChild(s); s.oninput = () => list(s.value);
       } else list("");
     }));
     function list(q) {
@@ -139,6 +140,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     // Dropdowns: category path, brand from the T-shirt rule (via search), size by prefix, condition, color, material
     expect(await page.inputValue("#cat")).toBe("Bedruckte T-Shirts");
     expect(await page.inputValue("#brand")).toBe("Graphic Tee");
+    expect(await page.inputValue("#sitesearch")).toBe(""); // never types into Vinted's site search
     expect(await page.inputValue("#size")).toBe("M / 38");
     expect(await page.inputValue("#cond")).toBe("Sehr gut");
     expect(await page.inputValue("#color")).toBe("Weiß");
