@@ -94,10 +94,10 @@ async function main() {
       body: init.json !== undefined ? JSON.stringify(init.json) : undefined,
       signal: AbortSignal.timeout(60_000),
     }),
-    async readVintedCookies(domain) {
+    async readVintedCookies(domain, chromeUrl) {
       let browser;
       try {
-        browser = await chromium.connectOverCDP(env.chromeDebugUrl, { timeout: 5000 });
+        browser = await chromium.connectOverCDP(chromeUrl || env.chromeDebugUrl, { timeout: 5000 });
       } catch {
         throw Object.assign(new Error("Das Vinted-Chrome läuft nicht – bitte „Chrome fuer Vinted starten.bat“ öffnen und bei Vinted einloggen."), { code: "chrome" });
       }

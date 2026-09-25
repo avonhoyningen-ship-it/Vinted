@@ -2,7 +2,7 @@ import { db, nowIso } from "../../db/index.js";
 import { eventBus } from "../../lib/eventBus.js";
 import { HttpError } from "../../lib/http.js";
 import { photoPath } from "../../storage/photos.js";
-import { getAccount } from "../accounts/repo.js";
+import { chromeUrlFor, getAccount } from "../accounts/repo.js";
 import { createListing, getItem, listPhotos } from "../archive/repo.js";
 import { loadRules, parcelSize, parseMeasurements, ruleBrand, ruleParcel } from "../listings/brandRules.js";
 import { confirmPrice } from "../pricing/engine.js";
@@ -30,6 +30,7 @@ export async function assistData(itemId: number, accountId: number): Promise<Omi
     parcel: ruleParcel(item, rules.parcel) ?? parcelSize(item.parcel_size),
     photos: (await listPhotos(item.id)).slice(0, 20).map((p) => p.file_name),
     domain: account.domain,
+    chromeUrl: chromeUrlFor(account),
   };
 }
 
@@ -62,6 +63,8 @@ export async function linkUploadedListing(job: Job, url: string) {
 /** Local dashboard: items from this PC's database, photos from the local folder. */
 export const localAssistSource: AssistSource = {
   check: checkAssistItems,
+  // Unknown account: default Chrome – check() reports the missing account afterwards.
+  chromeUrl: async (accountId) => chromeUrlFor((await getAccount(accountId).catch(() => null)) ?? { chrome_port: null }),
   async load(job) {
     const { photos, ...data } = await assistData(job.itemId, job.accountId);
     return { ...data, photoFiles: photos.map(photoPath) };

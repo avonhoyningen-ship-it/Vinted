@@ -216,4 +216,27 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     await b.close();
   }, 120_000);
 
+
+  it("uses the account's own Chrome profile (port) – several Vinted accounts side by side", async () => {
+    const { env } = await import("../src/config/env.js");
+    const { stopAssist } = await import("../src/modules/assist/assistant.js");
+    const port = Number(new URL(process.env.CHROME_DEBUG_URL!).port);
+    const acc = (await request(app).post("/api/accounts").send({ name: "Shop 2", domain: "vinted.de", chromePort: port })).body.account;
+    expect(acc.chrome_port).toBe(port);
+    const photo = await sharp({ create: { width: 20, height: 20, channels: 3, background: "#999" } }).jpeg().toBuffer();
+    const draft = (await request(app).post("/api/listings/drafts").attach("photos", photo, "1.jpg").field("data", JSON.stringify({ title: "Port-Test" }))).body.item;
+    const old = env.chromeDebugUrl;
+    env.chromeDebugUrl = "http://127.0.0.1:1"; // the default Chrome is not running
+    try {
+      const res = await request(app).post("/api/assist/start").send({ itemIds: [draft.id], accountId: acc.id });
+      expect(res.status).toBe(200);
+      // An account without its own port still points at the (missing) default Chrome.
+      const other = (await request(app).post("/api/accounts").send({ name: "Shop 3", domain: "vinted.de" })).body.account;
+      const fail = await request(app).post("/api/assist/start").send({ itemIds: [draft.id], accountId: other.id });
+      expect(fail.status).toBe(503);
+    } finally {
+      stopAssist();
+      env.chromeDebugUrl = old;
+    }
+  }, 60_000);
 });

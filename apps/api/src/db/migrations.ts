@@ -347,4 +347,10 @@ DROP TABLE settings;
 ALTER TABLE settings_new RENAME TO settings;
 `,
   },
+  {
+    id: 8,
+    name: "account_chrome_port",
+    // One Chrome profile per Vinted account (port of its remote debugging); NULL = default 9222.
+    sql: `ALTER TABLE accounts ADD COLUMN chrome_port INTEGER;`,
+  },
 ];

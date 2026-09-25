@@ -5,7 +5,7 @@ import { eventBus, type AssistStatus } from "../lib/eventBus.js";
 import { h, HttpError, idParam } from "../lib/http.js";
 import { readPhoto } from "../storage/photos.js";
 import { safeName } from "../storage/store.js";
-import { getAccount, toPublic } from "../modules/accounts/repo.js";
+import { chromeUrlFor, getAccount, toPublic } from "../modules/accounts/repo.js";
 import { syncAccount } from "../modules/accounts/sync.js";
 import { assistData, checkAssistItems, linkUploadedListing } from "../modules/assist/localSource.js";
 import { completeJob, createHelperToken, helperStatus, pollJobs, runOnHelper, userForHelperToken } from "./helperHub.js";
@@ -43,7 +43,7 @@ helperTokensRouter.delete("/:id", h(async (req, res) => {
 export const HELPER_SESSION = "helper";
 export async function connectAccountViaHelper(accountId: number) {
   const account = await getAccount(accountId);
-  const r = await runOnHelper<{ hint: string }>("account.connect", { accountId, domain: account.domain }, { timeoutMs: 60_000 });
+  const r = await runOnHelper<{ hint: string }>("account.connect", { accountId, domain: account.domain, chromeUrl: chromeUrlFor(account) }, { timeoutMs: 60_000 });
   await db.run("UPDATE accounts SET session_encrypted = ?, refresh_encrypted = NULL, session_hint = ?, status = 'pending', last_error = NULL, updated_at = ? WHERE id = ?",
     [HELPER_SESSION, `PC-Helfer ${r.hint}`, nowIso(), accountId]);
   let error: string | null = null;

@@ -29,6 +29,7 @@ export interface AccountRow {
   unread_messages: number;
   publish_interval_minutes: number | null;
   polling_enabled: number;
+  chrome_port: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +50,8 @@ export const accountInput = z.object({
   refreshToken: z.string().trim().min(8).max(8192).optional(),
   publishIntervalMinutes: z.number().int().min(5).max(24 * 60).nullable().optional(),
   pollingEnabled: z.boolean().optional(),
+  /** Port of this account's own Chrome profile ("Chrome fuer Vinted starten.bat <Name> <Port>"); empty = 9222 */
+  chromePort: z.number().int().min(1024).max(65535).nullable().optional(),
 });
 export const accountPatch = accountInput.partial();
 
@@ -72,8 +75,8 @@ function assertNoTokenInCloud(input: { sessionToken?: string; refreshToken?: str
 export async function createAccount(input: z.infer<typeof accountInput>): Promise<AccountRow> {
   assertNoTokenInCloud(input);
   const id = await db.insert(`
-    INSERT INTO accounts (name, domain, session_encrypted, refresh_encrypted, session_hint, publish_interval_minutes, polling_enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO accounts (name, domain, session_encrypted, refresh_encrypted, session_hint, publish_interval_minutes, polling_enabled, chrome_port)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     input.name, input.domain,
     input.sessionToken ? encrypt(input.sessionToken) : null,
@@ -81,6 +84,7 @@ export async function createAccount(input: z.infer<typeof accountInput>): Promis
     input.sessionToken ? maskSecret(input.sessionToken) : null,
     input.publishIntervalMinutes ?? null,
     input.pollingEnabled === false ? 0 : 1,
+    input.chromePort ?? null,
   ]);
   return getAccount(id);
 }
@@ -91,7 +95,7 @@ export async function updateAccount(id: number, patch: z.infer<typeof accountPat
   const tokenChanged = patch.sessionToken !== undefined;
   await db.run(`
     UPDATE accounts SET name = ?, domain = ?, session_encrypted = ?, refresh_encrypted = ?, session_hint = ?, publish_interval_minutes = ?,
-      polling_enabled = ?, status = ?, updated_at = ?
+      polling_enabled = ?, chrome_port = ?, status = ?, updated_at = ?
     WHERE id = ?
   `, [
     patch.name ?? a.name,
@@ -101,6 +105,7 @@ export async function updateAccount(id: number, patch: z.infer<typeof accountPat
     tokenChanged ? maskSecret(patch.sessionToken!) : a.session_hint,
     patch.publishIntervalMinutes !== undefined ? patch.publishIntervalMinutes : a.publish_interval_minutes,
     patch.pollingEnabled === undefined ? a.polling_enabled : patch.pollingEnabled ? 1 : 0,
+    patch.chromePort !== undefined ? patch.chromePort : a.chrome_port,
     tokenChanged ? "pending" : a.status,
     nowIso(),
     id,
@@ -128,6 +133,9 @@ export async function deleteAccount(id: number) {
     await db.run("DELETE FROM accounts WHERE id = ?", [id]);
   });
 }
+
+/** Remote-debugging address of the Chrome profile for this account (on the seller's PC). */
+export const chromeUrlFor = (a: Pick<AccountRow, "chrome_port">) => (a.chrome_port ? `http://127.0.0.1:${a.chrome_port}` : env.chromeDebugUrl);
 
 export function sessionFor(a: AccountRow): VintedSession {
   if (!a.session_encrypted) throw new HttpError(400, `Account "${a.name}" hat keine gespeicherte Session`);

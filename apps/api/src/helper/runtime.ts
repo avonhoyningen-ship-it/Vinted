@@ -26,7 +26,7 @@ export interface HelperDeps {
   vinted: VintedClient;
   logins: LoginStore;
   /** access/refresh token cookies of the Vinted-Chrome for a domain. */
-  readVintedCookies(domain: string): Promise<{ access: string | null; refresh: string | null }>;
+  readVintedCookies(domain: string, chromeUrl?: string | null): Promise<{ access: string | null; refresh: string | null }>;
   assistant: {
     setSource(s: AssistSource): void;
     start(itemIds: number[], accountId: number): Promise<AssistStatus>;
@@ -93,7 +93,7 @@ export function createHelper(deps: HelperDeps) {
     async "account.connect"(p) {
       const accountId = Number(p.accountId);
       const domain = String(p.domain);
-      const { access, refresh } = await deps.readVintedCookies(domain);
+      const { access, refresh } = await deps.readVintedCookies(domain, typeof p.chromeUrl === "string" ? p.chromeUrl : null);
       if (!access) {
         throw Object.assign(new Error(`Im Vinted-Chrome ist niemand bei ${domain} eingeloggt – bitte dort anmelden und erneut verbinden.`), { code: "auth" });
       }
@@ -111,7 +111,9 @@ export function createHelper(deps: HelperDeps) {
       const accountId = Number(p.accountId);
       const items = (p.items as (Omit<AssistItemData, "photoFiles"> & { photos: string[] })[]) ?? [];
       const byId = new Map(items.map((i) => [i.itemId, i]));
+      const chromeUrl = items[0]?.chromeUrl ?? null;
       deps.assistant.setSource({
+        chromeUrl: async () => chromeUrl,
         async check(ids) {
           return new Map(ids.map((id) => [id, byId.get(id)?.title ?? `Artikel #${id}`]));
         },

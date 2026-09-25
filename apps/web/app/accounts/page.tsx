@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useToast } from "@/components/Toasts";
 import { AccountForm } from "@/components/AccountForm";
 import { HelperCard } from "@/components/HelperCard";
+import { downloadChromeBat } from "@/lib/chromeBat";
 import { CLOUD } from "@/lib/mode";
 import { Empty, ErrorBox, Modal, PageHead, StatusBadge } from "@/components/ui";
 import { api, relative } from "@/lib/api";
@@ -77,6 +78,11 @@ export default function AccountsPage() {
               {CLOUD && (
                 <button className="btn small" disabled={connecting === a.id} onClick={() => connectHelper(a.id)}>
                   {connecting === a.id ? "Verbinde…" : a.has_session ? "Login neu übernehmen" : "Mit PC-Helfer verbinden"}
+                </button>
+              )}
+              {a.chrome_port && (
+                <button className="btn small" title={`Eigenes Chrome-Profil auf Port ${a.chrome_port}`} onClick={() => downloadChromeBat(a.name, a.chrome_port!, a.domain)}>
+                  Chrome für diesen Account
                 </button>
               )}
               <Link className="btn small" href={`/accounts/${a.id}`}>Details</Link>

@@ -37,6 +37,8 @@ export interface AssistItemData {
   photoFiles: string[];
   /** Vinted domain of the account, e.g. "vinted.de" */
   domain: string;
+  /** Remote-debugging address of this account's Chrome profile (default: CHROME_DEBUG_URL). */
+  chromeUrl?: string | null;
 }
 
 /**
@@ -46,6 +48,8 @@ export interface AssistItemData {
 export interface AssistSource {
   /** Validates the items (e.g. photos present) and returns their titles. */
   check(itemIds: number[], accountId: number): Promise<Map<number, string>>;
+  /** Chrome of this account (each Vinted account can have its own profile/port). */
+  chromeUrl?(accountId: number): Promise<string | null>;
   load(job: Job): Promise<AssistItemData>;
   /** The seller clicked "Hochladen": link the new Vinted listing. */
   linked(job: Job, url: string): Promise<void>;
@@ -61,7 +65,7 @@ const src = () => {
   return source;
 };
 
-let browser: Browser | null = null;
+const browsers = new Map<string, Browser>();
 let queue: Job[] = [];
 let preparing = false;
 let fatal: string | null = null;
@@ -92,13 +96,17 @@ function publish() {
   src().publish(getAssistStatus());
 }
 
-async function connect(): Promise<Browser> {
-  if (browser?.isConnected()) return browser;
+async function connect(url: string = env.chromeDebugUrl): Promise<Browser> {
+  const known = browsers.get(url);
+  if (known?.isConnected()) return known;
   try {
-    browser = await chromium.connectOverCDP(env.chromeDebugUrl, { timeout: 5000 });
-    return browser;
+    const b = await chromium.connectOverCDP(url, { timeout: 5000 });
+    browsers.set(url, b);
+    return b;
   } catch {
-    throw new HttpError(503, "Das Vinted-Chrome läuft nicht. Bitte zuerst „Chrome fuer Vinted starten.bat“ öffnen und bei Vinted einloggen.");
+    const port = new URL(url).port;
+    const how = port && port !== "9222" ? `„Chrome fuer Vinted starten.bat“ für diesen Account (Port ${port})` : "„Chrome fuer Vinted starten.bat“";
+    throw new HttpError(503, `Das Vinted-Chrome läuft nicht. Bitte zuerst ${how} öffnen und bei Vinted einloggen.`);
   }
 }
 
@@ -314,7 +322,7 @@ async function pickParcel(page: Page, size: ParcelSize): Promise<boolean> {
 async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missing: string[]; fields: string[] }> {
   const item = await src().load(job);
   const photos = item.photoFiles.slice(0, 20);
-  const b = await connect();
+  const b = await connect(item.chromeUrl ?? undefined);
   const context = b.contexts()[0] ?? (await b.newContext());
   const page = await context.newPage();
   await page.goto(sellUrl(item.domain), { waitUntil: "domcontentloaded" });
@@ -480,7 +488,7 @@ async function prepareAll() {
 }
 
 export async function startAssist(itemIds: number[], accountId: number) {
-  await connect(); // fail fast with a clear message
+  await connect((await src().chromeUrl?.(accountId)) ?? undefined); // fail fast with a clear message
   const titles = await src().check(itemIds, accountId);
   if (!tabs.some((t) => ["queued", "preparing", "ready"].includes(t.state))) {
     tabs = [];

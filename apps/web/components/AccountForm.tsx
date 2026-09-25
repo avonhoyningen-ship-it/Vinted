@@ -19,6 +19,7 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
   const existing = initial ?? created;
   const [interval, setInterval] = useState(initial?.publish_interval_minutes?.toString() ?? "");
   const [polling, setPolling] = useState(initial?.polling_enabled ?? true);
+  const [chromePort, setChromePort] = useState(initial?.chrome_port?.toString() ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,6 +30,7 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
       const body = {
         name, domain, pollingEnabled: polling,
         publishIntervalMinutes: interval ? Number(interval) : null,
+        chromePort: chromePort ? Number(chromePort) : null,
         ...(token ? { sessionToken: token.trim() } : {}),
         ...(refresh ? { refreshToken: refresh.trim() } : {}),
       };
@@ -80,6 +82,10 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
       </>)}
       <div className="form-grid">
         <label className="field">Abstand zwischen Veröffentlichungen (Min.)<input type="number" min={5} value={interval} onChange={(e) => setInterval(e.target.value)} placeholder="Standard" /></label>
+        <label className="field">Chrome-Port (nur bei mehreren Accounts)
+          <input type="number" min={1024} max={65535} value={chromePort} onChange={(e) => setChromePort(e.target.value)} placeholder="9222" />
+          <span className="muted" style={{ fontWeight: 400 }}>Jeder weitere Account braucht ein eigenes Chrome-Profil, z. B. 9223, 9224 … Die passende Startdatei gibt es danach auf der Account-Karte.</span>
+        </label>
         <label className="field">Automatisches Abrufen
           <select value={polling ? "1" : "0"} onChange={(e) => setPolling(e.target.value === "1")}><option value="1">aktiv</option><option value="0">pausiert</option></select>
         </label>
