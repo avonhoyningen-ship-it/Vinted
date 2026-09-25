@@ -70,6 +70,9 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const [folders, setFolders] = useState<Map<string, File[]>>(new Map());
   const [mode, setMode] = useState<Mode>("perFolder");
   const [groups, setGroups] = useState<Group[]>([]);
+  // Details for the whole folder (apply to every article unless overridden).
+  const [folderMeasurements, setFolderMeasurements] = useState("");
+  const [folderSize, setFolderSize] = useState("");
   const [hints, setHints] = useState("");
   const [useAi, setUseAi] = useState(true);
   const [progress, setProgress] = useState<string | null>(null);
@@ -92,14 +95,19 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
     const sorted = new Map([...map].sort(([a], [b]) => a.localeCompare(b, "de", { numeric: true })));
     setFolders(sorted);
     setResults([]);
+    // A single folder's name holds the measurements that apply to all its articles.
+    setFolderMeasurements(sorted.size === 1 ? cleanName([...sorted.keys()][0]!) : "");
     // One folder with many photos → most likely several articles in one folder.
     const m: Mode = sorted.size === 1 && [...sorted.values()][0]!.length > 8 ? "grouped" : "perFolder";
     setMode(m);
     setGroups(m === "perFolder" ? perFolderGroups(sorted) : []);
   }
 
+  const cleanName = (folder: string) => (folder === "Ohne Ordner" ? "" : folder.replace(/_+/g, " ").trim());
   const perFolderGroups = (map: Map<string, File[]>): Group[] =>
-    [...map].map(([folder, fs]) => ({ key: newKey(), files: fs, measurements: folder.replace(/_+/g, " ").trim(), hint: "" }));
+    map.size === 1
+      ? [...map].map(([, fs]) => ({ key: newKey(), files: fs, measurements: "", hint: "" })) // uses the folder-wide value
+      : [...map].map(([folder, fs]) => ({ key: newKey(), files: fs, measurements: cleanName(folder), hint: "" }));
 
   function switchMode(m: Mode) {
     setMode(m);
@@ -136,12 +144,14 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   async function create() {
     const out: typeof results = [];
     for (const [i, g] of groups.entries()) {
+      const measurements = (g.measurements || folderMeasurements).trim();
       const label = g.measurements || `Artikel ${i + 1}`;
       setProgress(`Artikel ${i + 1} von ${groups.length} ${useAi && aiEnabled ? "– KI dreht Fotos und schreibt die Beschreibung…" : "wird angelegt…"}`);
       const fd = new FormData();
       g.files.slice(0, MAX_PHOTOS).forEach((f) => fd.append("photos", f, f.name));
-      if (g.measurements.trim()) fd.append("data", JSON.stringify({ measurements: g.measurements.trim() }));
-      const hint = [hints, g.hint].filter((h) => h.trim()).join(". ");
+      const data = { ...(measurements ? { measurements } : {}), ...(folderSize.trim() ? { size: folderSize.trim() } : {}) };
+      if (Object.keys(data).length) fd.append("data", JSON.stringify(data));
+      const hint = [folderSize.trim() && `Größe: ${folderSize.trim()}`, hints, g.hint].filter((h) => h && h.trim()).join(". ");
       if (hint) fd.append("hints", hint);
       if (useAi && aiEnabled) fd.append("ai", "true");
       try {
@@ -194,6 +204,22 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
         </div>
       )}
 
+      {!!total && (
+        <div className="card stack" style={{ padding: 12, background: "var(--surface-2)" }}>
+          <strong>Angaben für den ganzen Ordner</strong>
+          <div className="small muted">Gelten für alle Artikel; pro Artikel kannst du sie unten überschreiben.</div>
+          <div className="form-grid">
+            <label className="field">Maße {folders.size === 1 && <span className="muted">(aus dem Ordnernamen)</span>}
+              <input value={folderMeasurements} onChange={(e) => setFolderMeasurements(e.target.value)} placeholder="z. B. Länge 70 cm, Breite 55 cm" />
+            </label>
+            <label className="field">Größe<input value={folderSize} onChange={(e) => setFolderSize(e.target.value)} placeholder="z. B. S–M" /></label>
+            <label className="field span-all">Weitere Details (Zustand, Passform, Besonderheiten, Wunsch-Hashtags)
+              <input value={hints} onChange={(e) => setHints(e.target.value)} placeholder="z. B. Zustand sehr gut, fällt normal aus, #bandshirt" />
+            </label>
+          </div>
+        </div>
+      )}
+
       {mode === "grouped" && !!total && !groups.length && (
         <div className="row">
           <button className="btn primary" disabled={!!progress || !aiEnabled} onClick={autoGroup}>✨ KI ordnet {total} Fotos zu</button>
@@ -227,16 +253,13 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
                   ))}
                 </div>
                 <div className="form-grid">
-                  <label className="field">Maße<input value={g.measurements} placeholder="z. B. Länge 70 cm, Breite 55 cm" onChange={(e) => update(i, { measurements: e.target.value })} /></label>
+                  <label className="field">Maße (nur falls abweichend)<input value={g.measurements} placeholder={folderMeasurements ? `wie Ordner: ${folderMeasurements}` : "z. B. Länge 70 cm, Breite 55 cm"} onChange={(e) => update(i, { measurements: e.target.value })} /></label>
                   <label className="field">Hinweis für diesen Artikel<input value={g.hint} placeholder="z. B. kleiner Fleck am Ärmel" onChange={(e) => update(i, { hint: e.target.value })} /></label>
                 </div>
               </div>
             ))}
           </div>
           <div className="form-grid">
-            <label className="field span-all">Hinweise für alle Artikel (Zustand, Passform, Besonderheiten, Wunsch-Hashtags)
-              <input value={hints} onChange={(e) => setHints(e.target.value)} placeholder="z. B. Zustand sehr gut, fällt normal aus" />
-            </label>
             <label className="row span-all"><input type="checkbox" checked={useAi && aiEnabled} disabled={!aiEnabled} onChange={(e) => setUseAi(e.target.checked)} />
               KI: Fotos automatisch drehen, Titel, Beschreibung, Hashtags und Preis erstellen</label>
           </div>
