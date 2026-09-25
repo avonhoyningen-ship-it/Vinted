@@ -11,12 +11,13 @@ import { chromium } from "playwright-core";
 const CHROME = "/opt/pw-browsers/chromium";
 const hasChrome = fs.existsSync(CHROME);
 
-// A stand-in for Vinted's sell page: file input, title, description, price and an upload button.
+// A stand-in for Vinted's sell page: file input, title, description, price (rendered late) and an upload button.
 const SELL_PAGE = `<!doctype html><html><body>
   <input type="file" multiple accept="image/*" id="photos" style="display:none">
   <label for="t">Titel</label><input id="t" data-testid="title--input">
   <label for="d">Beschreibung</label><textarea id="d" name="description"></textarea>
-  <label for="p">Preis</label><input id="p" name="price">
+  <div id="later"></div>
+  <script>setTimeout(() => { later.innerHTML = '<label for="p">Preis</label><input id="p" name="price">'; }, 2000)</script>
   <button id="upload" onclick="location.href='/items/5550001-sakura-tee'">Hochladen</button>
 </body></html>`;
 
@@ -86,6 +87,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       return s.state === "waiting" && s;
     });
     expect(waiting.filled).toEqual(["2 Fotos", "Titel", "Beschreibung", "Preis"]);
+    expect(waiting.fields).toEqual([]);
 
     // Look at the form like the seller would, then click "Hochladen".
     const b = await chromium.connectOverCDP(process.env.CHROME_DEBUG_URL!);

@@ -13,6 +13,7 @@ export interface AssistStatus {
   missing: string[];
   message: string | null;
   done: { itemId: number; title: string; url: string }[];
+  fields?: string[];
 }
 
 /** Live status of the posting assistant (fed by the SSE stream via SaleNotifier). */
@@ -46,6 +47,12 @@ export function AssistBanner() {
         <div className="small" style={{ marginTop: 4 }}>
           Ausgefüllt: {s.filled.join(", ") || "–"}{s.missing.length > 0 && <> · Bitte selbst: {s.missing.join(", ")}</>}
         </div>
+      )}
+      {!!s.fields?.length && (
+        <details className="small" style={{ marginTop: 6 }}>
+          <summary>Technische Details (bitte als Screenshot schicken, falls Felder nicht ausgefüllt wurden)</summary>
+          <pre style={{ whiteSpace: "pre-wrap", margin: "6px 0 0", fontSize: 11 }}>{s.fields.join("\n")}</pre>
+        </details>
       )}
       {!!s.done.length && <div className="small" style={{ marginTop: 4 }}>✓ Eingestellt: {s.done.map((d) => d.title).join(", ")}</div>}
     </div>

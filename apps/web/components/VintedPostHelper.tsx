@@ -70,16 +70,20 @@ export function VintedPostHelper({ item, photoCount, onClose, onDone }: { item: 
   return (
     <Modal title="Bei Vinted einstellen" onClose={onClose}>
       <div className="stack">
-        <div className="card row" style={{ padding: 12, background: "var(--surface-2)" }}>
-          <span style={{ flex: 1 }}><strong>Automatisch:</strong> Das Dashboard füllt das Formular in deinem Vinted-Chrome aus – du klickst nur noch „Hochladen“.</span>
-          <button className="btn primary" onClick={() => setAssist(true)}>🤖 Im Vinted-Chrome ausfüllen</button>
+        <div className="card stack" style={{ padding: 14, background: "var(--accent-soft)", borderColor: "var(--accent)" }}>
+          <strong>Automatisch ausfüllen (empfohlen)</strong>
+          <div className="small">Das Dashboard öffnet im <strong>Vinted-Chrome</strong> (das separate Chrome aus „Chrome fuer Vinted starten.bat“) die Verkaufsseite
+            und trägt Fotos, Titel, Beschreibung und Preis ein. Du klickst dort nur noch „Hochladen“.</div>
+          <button className="btn primary" style={{ alignSelf: "flex-start" }} onClick={() => setAssist(true)}>🤖 Im Vinted-Chrome ausfüllen</button>
         </div>
-        <div className="small muted">Oder von Hand:</div>
+        <details>
+          <summary className="muted">Oder komplett von Hand einstellen</summary>
+          <div className="stack" style={{ marginTop: 12 }}>
 
         <strong>1. Fotos &amp; Vinted öffnen</strong>
         <div className="row">
           <a className="btn" href={`${API_URL}/api/archive/${item.id}/photos.zip`} download>📦 {photoCount} Fotos herunterladen (ZIP)</a>
-          <a className="btn primary" href={`https://www.${domain}/items/new`} target="_blank" rel="noreferrer">Vinted „Artikel verkaufen“ öffnen ↗</a>
+          <a className="btn" href={`https://www.${domain}/items/new`} target="_blank" rel="noreferrer">Vinted öffnen (ohne Ausfüllen) ↗</a>
         </div>
         <div className="small muted">ZIP entpacken und die Fotos in der Reihenfolge 01, 02, … bei Vinted hochladen.</div>
 
@@ -107,10 +111,13 @@ export function VintedPostHelper({ item, photoCount, onClose, onDone }: { item: 
             <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={`https://www.${domain}/items/…`} />
           </label>
         </div>
+            <div className="row"><div className="spacer" />
+              <button className="btn primary" disabled={!/\/items\/\d+/.test(url) || !account} onClick={link}>Verknüpfen</button></div>
+          </div>
+        </details>
         <div className="row">
           <div className="spacer" />
-          <button className="btn" onClick={onClose}>Später</button>
-          <button className="btn primary" disabled={!/\/items\/\d+/.test(url) || !account} onClick={link}>Verknüpfen</button>
+          <button className="btn" onClick={onClose}>Schließen</button>
         </div>
       </div>
     </Modal>

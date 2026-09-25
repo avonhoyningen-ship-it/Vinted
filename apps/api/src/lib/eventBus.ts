@@ -19,6 +19,8 @@ export interface AssistStatus {
   missing: string[];
   message: string | null;
   done: { itemId: number; title: string; url: string }[];
+  /** Form fields seen on the page when something could not be filled (for troubleshooting). */
+  fields: string[];
 }
 
 class Bus extends EventEmitter {

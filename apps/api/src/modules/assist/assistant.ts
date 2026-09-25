@@ -24,10 +24,11 @@ let browser: Browser | null = null;
 let queue: Job[] = [];
 let running = false;
 let skipCurrent = false;
-let status: AssistStatus = { state: "idle", itemId: null, title: null, position: 0, total: 0, filled: [], missing: [], message: null, done: [] };
+let status: AssistStatus = { state: "idle", itemId: null, title: null, position: 0, total: 0, filled: [], missing: [], message: null, done: [], fields: [] };
 
 function setStatus(patch: Partial<AssistStatus>) {
   status = { ...status, ...patch };
+  if (patch.state && patch.state !== "waiting" && !("fields" in patch)) status.fields = [];
   eventBus.publish({ type: "assist", status });
 }
 
@@ -46,13 +47,37 @@ async function connect(): Promise<Browser> {
 const sellUrl = (domain: string) => env.vintedSellUrl ?? `https://www.${domain}/items/new`;
 const priceText = (cents: number) => (cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2).replace(".", ","));
 
-/** First visible candidate wins – Vinted may change markup, so several variants are tried. */
-async function firstVisible(candidates: Locator[]): Promise<Locator | null> {
-  for (const c of candidates) {
-    const el = c.first();
-    if ((await el.count()) && (await el.isVisible().catch(() => false))) return el;
-  }
+/**
+ * First visible candidate wins – Vinted may change markup, so several variants
+ * are tried. The sell form renders progressively, so we keep looking for a while.
+ */
+async function firstVisible(candidates: Locator[], timeoutMs = 20_000): Promise<Locator | null> {
+  const until = Date.now() + timeoutMs;
+  do {
+    for (const c of candidates) {
+      const el = c.first();
+      if ((await el.count().catch(() => 0)) && (await el.isVisible().catch(() => false))) return el;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  } while (Date.now() < until);
   return null;
+}
+
+/** Short description of all form fields on the page – shown to the seller when something wasn't found. */
+async function describeFields(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const out: string[] = [];
+    document.querySelectorAll("input, textarea, select, [contenteditable=true]").forEach((el) => {
+      const e = el as HTMLInputElement;
+      if (e.type === "hidden") return;
+      const label = e.id ? document.querySelector(`label[for="${CSS.escape(e.id)}"]`)?.textContent?.trim() : "";
+      const parts = [e.tagName.toLowerCase(), e.type && `type=${e.type}`, e.id && `#${e.id}`, e.name && `name=${e.name}`,
+        e.getAttribute("data-testid") && `testid=${e.getAttribute("data-testid")}`, label && `„${label.slice(0, 30)}“`,
+        e.getAttribute("placeholder") && `placeholder=„${e.getAttribute("placeholder")!.slice(0, 30)}“`].filter(Boolean);
+      out.push(parts.join(" "));
+    });
+    return out.slice(0, 40);
+  }).catch(() => []);
 }
 
 async function fill(page: Page, candidates: Locator[], value: string): Promise<boolean> {
@@ -93,12 +118,21 @@ async function prepare(job: Job): Promise<Page> {
   }
 
   const fields: [string, string | null, Locator[]][] = [
-    ["Titel", item.title, [page.locator('[data-testid="title--input"]'), page.locator('input[name="title"]'), page.locator("#title"), page.getByLabel(/^titel/i)]],
-    ["Beschreibung", item.description, [page.locator('[data-testid="description--input"]'), page.locator('textarea[name="description"]'), page.locator("#description"), page.getByLabel(/beschreib/i)]],
+    ["Titel", item.title, [
+      page.locator('[data-testid="title--input"]'), page.locator('input[name="title"]'), page.locator("#title"),
+      page.getByLabel(/^titel/i), page.getByRole("textbox", { name: /titel/i }), page.locator('input[id*="title" i]'),
+    ]],
+    ["Beschreibung", item.description, [
+      page.locator('[data-testid="description--input"]'), page.locator('textarea[name="description"]'), page.locator("#description"),
+      page.getByLabel(/beschreib/i), page.getByRole("textbox", { name: /beschreib/i }), page.locator('textarea[id*="description" i]'), page.locator("textarea"),
+    ]],
   ];
   const price = item.price_confirmed && item.price_cents ? item.price_cents : item.price_suggested_cents ?? item.price_cents;
   if (price) {
-    fields.push(["Preis", priceText(price), [page.locator('[data-testid="price-input--input"]'), page.locator('input[name="price"]'), page.locator("#price"), page.getByLabel(/^preis/i)]]);
+    fields.push(["Preis", priceText(price), [
+      page.locator('[data-testid="price-input--input"]'), page.locator('input[name="price"]'), page.locator("#price"),
+      page.getByLabel(/^preis/i), page.getByRole("textbox", { name: /preis/i }), page.locator('input[id*="price" i]'),
+    ]]);
   }
   for (const [label, value, candidates] of fields) {
     if (!value) continue;
@@ -110,9 +144,14 @@ async function prepare(job: Job): Promise<Page> {
     }
   }
   if (!price) missing.push("Preis");
+  const notFound = missing.length > 0;
   missing.push("Kategorie, Marke, Größe, Zustand prüfen");
 
-  setStatus({ state: "waiting", filled, missing, message: "Bitte im Vinted-Chrome prüfen, fehlende Angaben ergänzen und auf „Hochladen“ klicken." });
+  setStatus({
+    state: "waiting", filled, missing,
+    message: "Bitte im Vinted-Chrome prüfen, fehlende Angaben ergänzen und auf „Hochladen“ klicken.",
+    fields: notFound ? [`Seite: ${page.url()}`, ...(await describeFields(page))] : [],
+  });
   return page;
 }
 
