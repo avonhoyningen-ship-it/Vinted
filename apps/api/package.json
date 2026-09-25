@@ -9,6 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=../../.env dist/index.js",
     "test": "vitest run",
+    "test:postgres": "TEST_DB=postgres vitest run",
+    "db:schema": "tsx src/db/printSchema.ts > ../../supabase/schema.sql",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -16,15 +18,18 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "multer": "^2.4.0",
+    "pg": "^8.23.0",
     "playwright-core": "^1.63.0",
     "sharp": "^0.35.4",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.6.2",
+    "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.1",
     "supertest": "^7.3.0",
     "tsx": "^4.23.15",

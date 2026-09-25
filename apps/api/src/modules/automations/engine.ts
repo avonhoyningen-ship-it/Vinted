@@ -192,9 +192,9 @@ export async function scheduleStaleListingActions(now = new Date()): Promise<num
     const candidates = await db.all<{ id: number; account_id: number }>(`
       SELECT l.id, l.account_id FROM listings l JOIN accounts a ON a.id = l.account_id
       WHERE l.status = 'active' AND a.status = 'connected' AND l.listed_at <= @listedBefore
-        AND (@accountId IS NULL OR l.account_id = @accountId)
+        AND l.account_id = COALESCE(@accountId, l.account_id)
         AND (l.last_price_drop_at IS NULL OR l.last_price_drop_at <= @droppedBefore)
-        AND (@minPrice IS NULL OR l.price_cents > @minPrice)
+        AND l.price_cents > COALESCE(@minPrice, -1)
         AND NOT EXISTS (SELECT 1 FROM scheduled_actions s WHERE s.rule_id = @ruleId AND s.listing_id = l.id AND s.status = 'pending')
     `, { listedBefore, droppedBefore, accountId: rule.account_id, minPrice: ac.minPriceCents ?? null, ruleId: rule.id });
     for (const c of candidates) {

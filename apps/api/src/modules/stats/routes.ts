@@ -18,7 +18,7 @@ function params(q: z.infer<typeof range>) {
     accountId: q.accountId ?? null,
   };
 }
-const SALES_WHERE = "s.sold_at >= @from AND s.sold_at <= @to AND (@accountId IS NULL OR s.account_id = @accountId)";
+const SALES_WHERE = "s.sold_at >= @from AND s.sold_at <= @to AND s.account_id = COALESCE(@accountId, s.account_id)";
 
 statsRouter.get("/overview", h(async (req, res) => {
   const p = params(range.parse(req.query));
@@ -26,17 +26,17 @@ statsRouter.get("/overview", h(async (req, res) => {
     FROM sales s WHERE ${SALES_WHERE}`, p))!;
   const profit = (await db.get<{ profit_cents: number; n: number }>(`SELECT COALESCE(SUM(s.price_cents - i.purchase_price_cents), 0) profit_cents, COUNT(*) n
     FROM sales s JOIN items i ON i.id = s.item_id WHERE i.purchase_price_cents IS NOT NULL AND ${SALES_WHERE}`, p))!;
-  const active = (await db.get<{ c: number }>("SELECT COUNT(*) c FROM listings WHERE status = 'active' AND (@accountId IS NULL OR account_id = @accountId)", p))!;
+  const active = (await db.get<{ c: number }>("SELECT COUNT(*) c FROM listings WHERE status = 'active' AND account_id = COALESCE(@accountId, account_id)", p))!;
   // Days between listing and sale, computed here (portable across SQLite and Postgres).
   const sold = await db.all<{ listed_at: string; sold_at: string }>(`SELECT l.listed_at, l.sold_at
-    FROM listings l WHERE l.status = 'sold' AND l.sold_at >= @from AND l.sold_at <= @to AND (@accountId IS NULL OR l.account_id = @accountId)`, p);
+    FROM listings l WHERE l.status = 'sold' AND l.sold_at >= @from AND l.sold_at <= @to AND l.account_id = COALESCE(@accountId, l.account_id)`, p);
   const days = sold.map((l) => (Date.parse(l.sold_at) - Date.parse(l.listed_at)) / 86400_000).filter((d) => Number.isFinite(d));
   const byAccount = (await db.all<Record<string, unknown>>(`
     SELECT a.id, a.name, a.domain, a.followers, a.status,
       (SELECT COUNT(*) FROM listings l WHERE l.account_id = a.id AND l.status = 'active') active_listings,
       (SELECT COUNT(*) FROM sales s WHERE s.account_id = a.id AND s.sold_at >= @from AND s.sold_at <= @to) sales,
       (SELECT COALESCE(SUM(price_cents), 0) FROM sales s WHERE s.account_id = a.id AND s.sold_at >= @from AND s.sold_at <= @to) revenue_cents
-    FROM accounts a WHERE (@accountId IS NULL OR a.id = @accountId) ORDER BY revenue_cents DESC
+    FROM accounts a WHERE a.id = COALESCE(@accountId, a.id) ORDER BY revenue_cents DESC
   `, p)).map((r) => ({ ...r, active_listings: Number(r.active_listings), sales: Number(r.sales), revenue_cents: Number(r.revenue_cents) }));
   res.json({
     salesCount: Number(sales.count),

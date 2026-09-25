@@ -133,7 +133,8 @@ describe("connecting an account (real client)", () => {
   }, 30_000);
 });
 
-describe("demo data cleanup", () => {
+// Only the local SQLite database ever had demo data.
+describe.skipIf(process.env.TEST_DB === "postgres")("demo data cleanup", () => {
   it("removes demo accounts and seed items but keeps the user's own items", async () => {
     const acc = (await db.insert("INSERT INTO accounts (name, domain, vinted_user_id, username, status) VALUES ('Demo', 'vinted.de', 'mock-c9e3aaaa', 'reseller_c9e3', 'connected')"));
     const seed = (await db.insert("INSERT INTO items (title, status) VALUES ('Levi''s 501 Jeans W32 L32', 'active')"));

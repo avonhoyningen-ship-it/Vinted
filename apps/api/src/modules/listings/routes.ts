@@ -23,7 +23,7 @@ listingsRouter.get("/", h(async (req, res) => {
     SELECT l.*, a.name AS account_name,
       (SELECT file_name FROM item_photos p WHERE p.item_id = l.item_id ORDER BY position, id LIMIT 1) AS cover_photo
     FROM listings l JOIN accounts a ON a.id = l.account_id
-    WHERE l.status = 'active' AND (@accountId IS NULL OR l.account_id = @accountId)
+    WHERE l.status = 'active' AND l.account_id = COALESCE(@accountId, l.account_id)
     ORDER BY l.listed_at DESC
   `, { accountId });
   res.json(rows.map(withDaysOnline));

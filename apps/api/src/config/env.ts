@@ -49,6 +49,17 @@ export const env = {
   disableWorkers: process.env.DISABLE_WORKERS === "true",
   /** Chrome started with --remote-debugging-port (see "Chrome fuer Vinted starten.bat"). */
   chromeDebugUrl: str("CHROME_DEBUG_URL", "http://127.0.0.1:9222"),
+  /**
+   * "cloud": multi-user SaaS (Postgres/Supabase, Clerk login, Stripe subscription, PC helper).
+   * "local" (default): one user on this PC with SQLite, as before.
+   */
+  appMode: (process.env.APP_MODE === "cloud" ? "cloud" : "local") as "local" | "cloud",
+  /** Postgres connection string (Supabase → Project Settings → Database). Empty = local SQLite file. */
+  databaseUrl: process.env.DATABASE_URL || null,
+  /** PEM of Supabase's CA certificate for verified TLS (Project Settings → Database → SSL). */
+  databaseCaCert: process.env.DATABASE_CA_CERT || null,
+  /** Apply the Postgres schema on start (idempotent). */
+  dbAutoMigrate: process.env.DB_AUTO_MIGRATE !== "false",
   /** Only for tests: override the Vinted sell page URL. */
   vintedSellUrl: process.env.VINTED_SELL_URL || null,
 };

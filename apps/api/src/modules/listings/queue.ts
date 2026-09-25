@@ -69,7 +69,7 @@ export function listQueue(status?: string) {
     SELECT q.*, i.title, i.price_cents, i.currency, a.name AS account_name,
       (SELECT file_name FROM item_photos p WHERE p.item_id = i.id ORDER BY position, id LIMIT 1) AS cover_photo
     FROM publish_queue q JOIN items i ON i.id = q.item_id JOIN accounts a ON a.id = q.account_id
-    WHERE (@status IS NULL OR q.status = @status)
+    WHERE q.status = COALESCE(@status, q.status)
     ORDER BY CASE q.status WHEN 'processing' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, q.scheduled_at
     LIMIT 500
   `, { status: status ?? null });

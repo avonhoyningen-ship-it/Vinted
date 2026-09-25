@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { env } from "../config/env.js";
+import { applyPgSchema, nodePgConnector, postgresDriver, SYSTEM_SCOPE } from "./postgres.js";
 import { sqliteDriver } from "./sqlite.js";
 import type { Driver, Params, Row } from "./types.js";
 
@@ -19,6 +20,14 @@ export function currentUserId(): string {
   return userStore.getStore() ?? LOCAL_USER;
 }
 
+/** Raw scope (undefined = none) – the Postgres driver refuses queries without one. */
+export const scopeUserId = () => userStore.getStore();
+
+/** Scope for work that is not tied to one user (webhooks, schedulers, helper auth). Postgres: owner rights. */
+export function withSystem<T>(fn: () => T): T {
+  return userStore.run(SYSTEM_SCOPE, fn);
+}
+
 /** Runs fn with every query scoped to `userId`. */
 export function withUser<T>(userId: string, fn: () => T): T {
   return userStore.run(userId, fn);
@@ -36,7 +45,27 @@ export async function forEachUser(fn: () => Promise<unknown>) {
   }
 }
 
-let driver: Driver = sqliteDriver(env.databasePath);
+/** Postgres whose connection pool is created on first use (the pg module loads lazily). */
+function lazyPostgres(url: string): Driver {
+  let ready: Promise<Driver> | null = null;
+  const get = () => (ready ??= (async () => {
+    const connector = await nodePgConnector(url, env.databaseCaCert);
+    if (env.dbAutoMigrate) await applyPgSchema(connector);
+    return postgresDriver(connector, { scope: scopeUserId });
+  })());
+  return {
+    kind: "postgres",
+    all: async (sql, p) => (await get()).all(sql, p),
+    get: async (sql, p) => (await get()).get(sql, p),
+    run: async (sql, p) => (await get()).run(sql, p),
+    exec: async (sql) => (await get()).exec(sql),
+    tx: async (fn) => (await get()).tx(fn),
+    userIds: async () => (await get()).userIds!(),
+    close: async () => { if (ready) await (await ready).close(); },
+  };
+}
+
+let driver: Driver = env.databaseUrl ? lazyPostgres(env.databaseUrl) : sqliteDriver(env.databasePath);
 
 /** Swaps the driver (Postgres in cloud mode, tests). */
 export function setDriver(d: Driver) {

@@ -62,7 +62,7 @@ automationsRouter.get("/actions", h(async (req, res) => {
     LEFT JOIN automation_rules r ON r.id = s.rule_id
     JOIN accounts a ON a.id = s.account_id
     LEFT JOIN listings l ON l.id = s.listing_id
-    WHERE (@status IS NULL OR s.status = @status)
+    WHERE s.status = COALESCE(@status, s.status)
     ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, COALESCE(s.executed_at, s.run_at) DESC
     LIMIT 300
   `, { status }));
