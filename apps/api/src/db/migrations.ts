@@ -325,4 +325,10 @@ UPDATE items SET status = CASE WHEN EXISTS (SELECT 1 FROM listings l WHERE l.ite
     // Vinted parcel size ("Klein" / "Mittel" / "Groß"), detected by rules or the AI.
     sql: `ALTER TABLE items ADD COLUMN parcel_size TEXT;`,
   },
+  {
+    id: 6,
+    name: "item_later",
+    // Drafts parked under "Später" (not shown under "Entwürfe").
+    sql: `ALTER TABLE items ADD COLUMN later INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];

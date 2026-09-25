@@ -192,4 +192,24 @@ describe("end-to-end (mock mode)", () => {
     const changes = db.prepare("SELECT COUNT(*) c FROM listing_price_changes").get() as { c: number };
     expect(changes.c).toBeGreaterThanOrEqual(2);
   });
+
+  it("parks drafts under 'Später', adds photos and marks them uploaded by hand", async () => {
+    const jpg = (c: string) => sharp({ create: { width: 30, height: 30, channels: 3, background: c } }).jpeg().toBuffer();
+    const d = (await request(app).post("/api/listings/drafts").attach("photos", await jpg("#f0f"), "a.jpg")
+      .field("data", JSON.stringify({ title: "Später-Shirt", price_cents: 1800 }))).body.item;
+    const ids = async (path: string) => (await request(app).get(path)).body.map((x: { id?: number; item_id?: number }) => x.item_id ?? x.id);
+
+    expect((await request(app).post("/api/listings/later").send({ itemIds: [d.id], later: true })).status).toBe(200);
+    expect(await ids("/api/listings/drafts")).not.toContain(d.id);
+    expect(await ids("/api/listings/later")).toContain(d.id);
+
+    const add = await request(app).post(`/api/archive/${d.id}/photos`).attach("photos", await jpg("#0ff"), "b.jpg").attach("photos", await jpg("#ff0"), "c.jpg");
+    expect(add.status).toBe(201);
+    expect((await request(app).get(`/api/archive/${d.id}`)).body.photos).toHaveLength(3);
+
+    expect((await request(app).post(`/api/archive/${d.id}/listings`).send({ accountId: accountA })).status).toBe(201);
+    expect(await ids("/api/listings/later")).not.toContain(d.id);
+    expect(await ids("/api/listings/drafts")).not.toContain(d.id);
+    expect(await ids("/api/listings/uploaded")).toContain(d.id);
+  });
 });

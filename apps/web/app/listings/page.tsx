@@ -2,9 +2,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { AddPhotosButton } from "@/components/AddPhotosButton";
 import { AssistStartDialog } from "@/components/AssistStartDialog";
 import { EnqueueDialog } from "@/components/EnqueueDialog";
 import { FolderUpload } from "@/components/FolderUpload";
+import { MarkUploadedDialog } from "@/components/MarkUploadedDialog";
 import { PriceCell } from "@/components/PriceCell";
 import { PricingTab } from "@/components/PricingTab";
 import { Dropzone } from "@/components/PhotoManager";
@@ -14,7 +16,7 @@ import { api, dateTime, euro, parseEuro, photoUrl } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { Item, Listing, QueueEntry, Template } from "@/lib/types";
 
-const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", uploaded: "Hochgeladen", pricing: "Preise", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
+const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", later: "Später", uploaded: "Hochgeladen", pricing: "Preise", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
 type Tab = keyof typeof TABS;
 
 function ListingsInner() {
@@ -32,7 +34,8 @@ function ListingsInner() {
       </div>
       {tab === "folder" && <FolderTab onDone={() => setTab("drafts")} />}
       {tab === "new" && <NewTab onDone={() => setTab("drafts")} />}
-      {tab === "drafts" && <DraftsTab />}
+      {tab === "drafts" && <DraftsTab key="drafts" />}
+      {tab === "later" && <DraftsTab key="later" later />}
       {tab === "uploaded" && <UploadedTab />}
       {tab === "pricing" && <PricingTab />}
       {tab === "queue" && <QueueTab />}
@@ -146,9 +149,11 @@ function NewTab({ onDone }: { onDone: () => void }) {
 
 // ---------- drafts ----------
 
-function DraftsTab() {
+/** "Entwürfe" – or, with `later`, the drafts parked under "Später". */
+function DraftsTab({ later = false }: { later?: boolean }) {
   const toast = useToast();
-  const { data, error, reload } = useApi<Item[]>("/listings/drafts");
+  const { data, error, reload } = useApi<Item[]>(later ? "/listings/later" : "/listings/drafts");
+  const [markUploaded, setMarkUploaded] = useState(false);
   useLiveReload(reload); // uploaded drafts move to "Hochgeladen" right away
   const info = useApi<{ aiEnabled: boolean; canPublish: boolean }>("/info");
   const [selected, setSelected] = useState<number[]>([]);
@@ -175,6 +180,13 @@ function DraftsTab() {
   async function acceptSelection() {
     const r = await api<{ accepted: number }>("/pricing/accept", { method: "POST", json: { itemIds: withSuggestion.map((d) => d.id) } });
     toast({ kind: "info", text: `${r.accepted} Preisvorschläge übernommen` });
+    void reload();
+  }
+
+  async function moveLater() {
+    await api("/listings/later", { method: "POST", json: { itemIds: selected, later: !later } });
+    toast({ kind: "info", text: later ? `${selected.length} zurück in „Entwürfe“` : `${selected.length} nach „Später“ verschoben` });
+    setSelected([]);
     void reload();
   }
 
@@ -205,7 +217,12 @@ function DraftsTab() {
           ? <button className="btn primary" disabled={!selected.length} onClick={() => setEnqueue(true)}>In Warteschlange…</button>
           : <button className="btn primary" disabled={!selected.length} onClick={() => setAssist(true)}>🤖 Bei Vinted vorbereiten ({selected.length})</button>}
       </div>
-      {data && !data.length && <div className="card"><Empty>Keine Entwürfe. <Link href="/listings?tab=new">Neue Artikel erstellen →</Link></Empty></div>}
+      <div className="row">
+        <div className="spacer" />
+        <button className="btn" disabled={!selected.length} onClick={moveLater}>{later ? "↩ Zurück zu Entwürfen" : "⏸ Später"} ({selected.length})</button>
+        <button className="btn" disabled={!selected.length} onClick={() => setMarkUploaded(true)}>✓ Als hochgeladen markieren ({selected.length})</button>
+      </div>
+      {data && !data.length && <div className="card"><Empty>{later ? "Nichts für später geparkt." : <>Keine Entwürfe. <Link href="/listings?tab=new">Neue Artikel erstellen →</Link></>}</Empty></div>}
       {!!data?.length && (
         <div className="card table-wrap">
           <table>
@@ -223,6 +240,7 @@ function DraftsTab() {
                     <td className="num"><PriceCell item={d} onChange={reload} /></td>
                     <td className="num">{d.photo_count}</td>
                     <td><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                      <AddPhotosButton itemId={d.id} onDone={reload} />
                       {info.data?.aiEnabled && <button className="btn small" disabled={busy === d.id} onClick={() => ai(d.id)}>{busy === d.id ? "KI…" : "✨ KI"}</button>}
                       <Link className="btn small" href={`/archive/${d.id}`}>Bearbeiten</Link>
                       {!info.data?.canPublish && <Link className="btn small primary" href={`/archive/${d.id}?post=1`}>Einstellen</Link>}
@@ -234,6 +252,7 @@ function DraftsTab() {
           </table>
         </div>
       )}
+      {markUploaded && <MarkUploadedDialog itemIds={selected} onClose={() => setMarkUploaded(false)} onDone={() => { setMarkUploaded(false); setSelected([]); void reload(); }} />}
       {assist && <AssistStartDialog itemIds={selected} onClose={() => setAssist(false)} onStarted={() => { setAssist(false); setSelected([]); }} />}
       {enqueue && <EnqueueDialog itemIds={selected} onClose={() => setEnqueue(false)} onDone={() => { setEnqueue(false); setSelected([]); void reload(); }} />}
     </div>
@@ -337,7 +356,10 @@ function UploadedTab() {
                   <td className="num">{euro(l.price_cents, l.currency)}</td>
                   <td>{dateTime(l.listed_at)}</td>
                   <td><StatusBadge status={l.status} /></td>
-                  <td>{l.url && <a href={l.url} target="_blank" rel="noreferrer">Vinted ↗</a>}</td>
+                  <td><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
+                    <AddPhotosButton itemId={l.item_id} onDone={reload} />
+                    {l.url && <a className="btn small" href={l.url} target="_blank" rel="noreferrer">Vinted ↗</a>}
+                  </div></td>
                 </tr>
               ))}
             </tbody>

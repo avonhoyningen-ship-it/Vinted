@@ -20,6 +20,7 @@ export interface ItemRow {
   material: string | null;
   measurements: string | null;
   parcel_size: string | null;
+  later: number;
   price_cents: number | null;
   currency: string;
   purchase_price_cents: number | null;
@@ -184,6 +185,7 @@ export function createListing(data: {
     // Optional fields left undefined keep their defaults (SQLite can't bind undefined).
     ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)),
   });
+  db.prepare("UPDATE items SET later = 0 WHERE id = ?").run(data.item_id); // uploaded → no longer "Später"
   recomputeItemStatus(data.item_id);
   return getListing(Number(r.lastInsertRowid));
 }

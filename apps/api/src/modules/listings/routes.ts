@@ -161,12 +161,27 @@ listingsRouter.post("/drafts/:id/ai", h(async (req, res) => {
   res.json({ suggestion, item: getItem(id), photos: listPhotos(id) });
 }));
 
+const draftsQuery = (later: 0 | 1) => db.prepare(`
+  SELECT i.*, (SELECT file_name FROM item_photos p WHERE p.item_id = i.id ORDER BY position, id LIMIT 1) AS cover_photo,
+    (SELECT COUNT(*) FROM item_photos p WHERE p.item_id = i.id) AS photo_count
+  FROM items i WHERE i.status = 'draft' AND i.later = ${later} ORDER BY i.created_at DESC
+`).all();
+
 listingsRouter.get("/drafts", h((_req, res) => {
-  res.json(db.prepare(`
-    SELECT i.*, (SELECT file_name FROM item_photos p WHERE p.item_id = i.id ORDER BY position, id LIMIT 1) AS cover_photo,
-      (SELECT COUNT(*) FROM item_photos p WHERE p.item_id = i.id) AS photo_count
-    FROM items i WHERE i.status = 'draft' ORDER BY i.created_at DESC
-  `).all());
+  res.json(draftsQuery(0));
+}));
+
+/** Drafts parked for later. */
+listingsRouter.get("/later", h((_req, res) => {
+  res.json(draftsQuery(1));
+}));
+
+/** Moves drafts to "Später" (later: true) or back to "Entwürfe" (later: false). */
+listingsRouter.post("/later", h((req, res) => {
+  const { itemIds, later } = z.object({ itemIds: z.array(z.number().int().positive()).min(1).max(1000), later: z.boolean() }).parse(req.body);
+  const stmt = db.prepare("UPDATE items SET later = ?, updated_at = ? WHERE id = ?");
+  db.transaction(() => itemIds.forEach((id) => stmt.run(later ? 1 : 0, nowIso(), id)))();
+  res.json({ moved: itemIds.length });
 }));
 
 // ---------- queue ----------
