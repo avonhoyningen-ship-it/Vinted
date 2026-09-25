@@ -1,13 +1,8 @@
 import { chromium, type Browser, type Locator, type Page } from "playwright-core";
 import { env } from "../../config/env.js";
-import { db, nowIso } from "../../db/index.js";
-import { eventBus, type AssistStatus, type AssistTab } from "../../lib/eventBus.js";
+import type { AssistStatus, AssistTab } from "../../lib/eventBus.js";
 import { HttpError } from "../../lib/http.js";
-import { photoPath } from "../../storage/photos.js";
-import { getAccount } from "../accounts/repo.js";
-import { createListing, getItem, listPhotos } from "../archive/repo.js";
-import { loadRules, parcelSize, parseMeasurements, ruleBrand, ruleParcel, type ParcelSize } from "../listings/brandRules.js";
-import { confirmPrice } from "../pricing/engine.js";
+import type { ParcelSize } from "../listings/brandRules.js";
 
 /**
  * Posting assistant for the seller's own Vinted-Chrome (remote debugging on
@@ -20,7 +15,51 @@ import { confirmPrice } from "../pricing/engine.js";
 
 const PUBLISH_TIMEOUT_MS = 3 * 60 * 60_000;
 
-interface Job { itemId: number; accountId: number }
+export interface Job { itemId: number; accountId: number }
+
+/** Everything the assistant types into Vinted's form for one item (already decided: rules, labels, price). */
+export interface AssistItemData {
+  itemId: number;
+  title: string;
+  description: string;
+  /** e.g. "24" or "24,50" */
+  price: string | null;
+  category: string | null;
+  brand: string | null;
+  size: string | null;
+  /** Vinted's label, e.g. "Sehr gut" */
+  condition: string | null;
+  color: string | null;
+  width: number | null;
+  length: number | null;
+  parcel: ParcelSize | null;
+  /** Photo files on this PC, in listing order. */
+  photoFiles: string[];
+  /** Vinted domain of the account, e.g. "vinted.de" */
+  domain: string;
+}
+
+/**
+ * Where items come from and where results go. Locally: the dashboard's own
+ * database (localSource.ts). On the PC helper: the cloud dashboard.
+ */
+export interface AssistSource {
+  /** Validates the items (e.g. photos present) and returns their titles. */
+  check(itemIds: number[], accountId: number): Promise<Map<number, string>>;
+  load(job: Job): Promise<AssistItemData>;
+  /** The seller clicked "Hochladen": link the new Vinted listing. */
+  linked(job: Job, url: string): Promise<void>;
+  publish(status: AssistStatus): void;
+}
+
+let source: AssistSource | null = null;
+export function setAssistSource(s: AssistSource) {
+  source = s;
+}
+const src = () => {
+  if (!source) throw new Error("Einstell-Assistent ohne Datenquelle");
+  return source;
+};
 
 let browser: Browser | null = null;
 let queue: Job[] = [];
@@ -50,7 +89,7 @@ export function getAssistStatus(): AssistStatus {
 }
 
 function publish() {
-  eventBus.publish({ type: "assist", status: getAssistStatus() });
+  src().publish(getAssistStatus());
 }
 
 async function connect(): Promise<Browser> {
@@ -64,7 +103,7 @@ async function connect(): Promise<Browser> {
 }
 
 const sellUrl = (domain: string) => env.vintedSellUrl ?? `https://www.${domain}/items/new`;
-const priceText = (cents: number) => (cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2).replace(".", ","));
+export const priceText = (cents: number) => (cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2).replace(".", ","));
 
 /**
  * First visible candidate wins – Vinted may change markup, so several variants
@@ -134,7 +173,7 @@ async function fillPrice(page: Page, candidates: Locator[], value: string): Prom
 
 // ---------- dropdowns (Kategorie, Marke, Größe, Zustand, Farbe) ----------
 
-const CONDITION_LABELS: Record<string, string> = {
+export const CONDITION_LABELS: Record<string, string> = {
   new_with_tags: "Neu mit Etikett", new_without_tags: "Neu ohne Etikett", very_good: "Sehr gut", good: "Gut", satisfactory: "Zufriedenstellend",
 };
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -273,14 +312,12 @@ async function pickParcel(page: Page, size: ParcelSize): Promise<boolean> {
 
 /** Opens the sell page in the Vinted-Chrome and fills what can be filled. */
 async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missing: string[]; fields: string[] }> {
-  const item = await getItem(job.itemId);
-  const account = await getAccount(job.accountId);
-  const photos = (await listPhotos(item.id)).slice(0, 20);
-  const rules = await loadRules();
+  const item = await src().load(job);
+  const photos = item.photoFiles.slice(0, 20);
   const b = await connect();
   const context = b.contexts()[0] ?? (await b.newContext());
   const page = await context.newPage();
-  await page.goto(sellUrl(account.domain), { waitUntil: "domcontentloaded" });
+  await page.goto(sellUrl(item.domain), { waitUntil: "domcontentloaded" });
   await page.bringToFront();
 
   if (/\/(member\/(login|signup)|signup|login)/.test(page.url())) {
@@ -294,7 +331,7 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
   try {
     await fileInput.first().waitFor({ state: "attached", timeout: 30_000 });
     if (photos.length) {
-      await fileInput.first().setInputFiles(photos.map((p) => photoPath(p.file_name)));
+      await fileInput.first().setInputFiles(photos);
       filled.push(`${photos.length} Fotos`);
     }
   } catch {
@@ -311,9 +348,9 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
       page.getByLabel(/beschreib/i), page.getByRole("textbox", { name: /beschreib/i }), page.locator('textarea[id*="description" i]'), page.locator("textarea"),
     ]],
   ];
-  const price = item.price_confirmed && item.price_cents ? item.price_cents : item.price_suggested_cents ?? item.price_cents;
+  const price = item.price;
   if (price) {
-    fields.push(["Preis", priceText(price), [
+    fields.push(["Preis", price, [
       page.locator('[data-testid="price-input--input"]'), page.locator('input[name="price"]'), page.locator("#price"),
       page.getByLabel(/^preis/i), page.getByRole("textbox", { name: /preis/i }), page.locator('input[id*="price" i]'),
     ]]);
@@ -330,12 +367,12 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
   if (!price) missing.push("Preis");
 
   // Dropdowns and measurements. Each one is best effort – the seller checks before uploading.
-  const brand = ruleBrand(item, rules.brand) ?? item.brand;
+  const brand = item.brand;
   const dropdowns: [string, () => Promise<boolean>, boolean][] = [
     ["Kategorie", () => pickCategory(page, item.category ?? ""), !!item.category],
     ["Marke", () => pickDropdown(page, /^marke$/i, [brand ?? ""]), !!brand],
     ["Größe", () => pickDropdown(page, /^größe$/i, [item.size ?? ""], true), !!item.size],
-    ["Zustand", () => pickDropdown(page, /^zustand$/i, [CONDITION_LABELS[item.condition ?? ""] ?? ""]), !!CONDITION_LABELS[item.condition ?? ""]],
+    ["Zustand", () => pickDropdown(page, /^zustand$/i, [item.condition ?? ""]), !!item.condition],
     ["Farbe", () => pickDropdown(page, /^farbe$/i, [item.color ?? ""]), !!item.color],
   ];
   for (const [label, run, available] of dropdowns) {
@@ -348,7 +385,7 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
       await page.keyboard.press("Escape").catch(() => {});
     }
   }
-  const { width, length } = parseMeasurements(item.measurements ?? item.title);
+  const { width, length } = item;
   const measure: [string, number | null, Locator[]][] = [
     ["Schulterweite", width, [page.getByPlaceholder(/schulterweite|breite/i), page.getByLabel(/schulterweite|breite/i)]],
     ["Länge", length, [page.getByPlaceholder(/^länge/i), page.getByLabel(/^länge/i)]],
@@ -357,8 +394,8 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
     if (value === null) continue;
     if (await fill(page, candidates, String(value), 3000).catch(() => false)) filled.push(label);
   }
-  // Material stays empty on purpose. Parcel size: rules first (T-shirts small, pullovers medium), then the AI's guess.
-  const parcel = ruleParcel(item, rules.parcel) ?? parcelSize(item.parcel_size);
+  // Material stays empty on purpose. Parcel size: decided by the source (rules first, then the AI's guess).
+  const parcel = item.parcel;
   if (parcel) {
     if (await pickParcel(page, parcel).catch(() => false)) filled.push(`Paketgröße ${parcel}`);
     else missing.push("Paketgröße");
@@ -381,20 +418,6 @@ async function waitForPublish(page: Page, tab: AssistTab): Promise<string | null
   return null;
 }
 
-async function linkListing(job: Job, url: string) {
-  const item = await getItem(job.itemId);
-  const vintedItemId = url.match(/\/items\/(\d+)/)?.[1] ?? null;
-  const existing = vintedItemId && (await db.get("SELECT id FROM listings WHERE account_id = ? AND vinted_item_id = ?", [job.accountId, vintedItemId]));
-  if (existing) return;
-  const price = item.price_confirmed && item.price_cents ? item.price_cents : item.price_suggested_cents ?? item.price_cents;
-  if (price && !item.price_confirmed) await confirmPrice(item.id, price, "confirmed");
-  await createListing({
-    item_id: item.id, account_id: job.accountId, vinted_item_id: vintedItemId, url, title: item.title,
-    description: item.description, price_cents: price ?? null, currency: item.currency, listed_at: nowIso(),
-  });
-  eventBus.publish({ type: "published", accountId: job.accountId, itemId: item.id, title: item.title });
-}
-
 /** Shows the next tab that still waits for the seller's click. */
 async function showNextReady() {
   if (preparing) return; // don't pull the seller away while a form is being filled
@@ -407,7 +430,7 @@ async function watch(job: Job, tab: AssistTab, page: Page) {
   try {
     const url = await waitForPublish(page, tab);
     if (url) {
-      await linkListing(job, url);
+      await src().linked(job, url);
       Object.assign(tab, { state: "done", url, message: null });
       done.push({ itemId: tab.itemId, title: tab.title, url });
       setTimeout(() => void page.close().catch(() => {}), 2000);
@@ -458,13 +481,7 @@ async function prepareAll() {
 
 export async function startAssist(itemIds: number[], accountId: number) {
   await connect(); // fail fast with a clear message
-  await getAccount(accountId);
-  const titles = new Map<number, string>();
-  for (const id of itemIds) {
-    const item = await getItem(id);
-    titles.set(id, item.title);
-    if (!(await listPhotos(id)).length) throw new HttpError(400, `„${item.title}“ hat keine Fotos`);
-  }
+  const titles = await src().check(itemIds, accountId);
   if (!tabs.some((t) => ["queued", "preparing", "ready"].includes(t.state))) {
     tabs = [];
     done.length = 0;

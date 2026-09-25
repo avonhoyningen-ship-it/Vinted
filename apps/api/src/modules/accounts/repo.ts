@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { env } from "../../config/env.js";
 import { db, nowIso } from "../../db/index.js";
 import { decrypt, encrypt, maskSecret } from "../../lib/crypto.js";
 import { HttpError, notFound } from "../../lib/http.js";
@@ -61,7 +62,15 @@ export async function getAccount(id: number): Promise<AccountRow> {
   return a;
 }
 
+/** Cloud: Vinted logins are never sent to the server – they are connected through the PC helper. */
+function assertNoTokenInCloud(input: { sessionToken?: string; refreshToken?: string }) {
+  if (env.appMode === "cloud" && (input.sessionToken || input.refreshToken)) {
+    throw new HttpError(400, "In der Cloud-Version wird der Vinted-Login nicht hier eingegeben, sondern über den PC-Helfer verbunden.");
+  }
+}
+
 export async function createAccount(input: z.infer<typeof accountInput>): Promise<AccountRow> {
+  assertNoTokenInCloud(input);
   const id = await db.insert(`
     INSERT INTO accounts (name, domain, session_encrypted, refresh_encrypted, session_hint, publish_interval_minutes, polling_enabled)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -77,6 +86,7 @@ export async function createAccount(input: z.infer<typeof accountInput>): Promis
 }
 
 export async function updateAccount(id: number, patch: z.infer<typeof accountPatch>): Promise<AccountRow> {
+  assertNoTokenInCloud(patch);
   const a = await getAccount(id);
   const tokenChanged = patch.sessionToken !== undefined;
   await db.run(`
@@ -121,6 +131,8 @@ export async function deleteAccount(id: number) {
 
 export function sessionFor(a: AccountRow): VintedSession {
   if (!a.session_encrypted) throw new HttpError(400, `Account "${a.name}" hat keine gespeicherte Session`);
+  // Cloud: the login stays on the user's PC; the helper looks it up by account id.
+  if (env.appMode === "cloud") return { token: "", domain: a.domain, vintedUserId: a.vinted_user_id, accountId: a.id };
   return {
     token: decrypt(a.session_encrypted),
     refreshToken: a.refresh_encrypted ? decrypt(a.refresh_encrypted) : null,

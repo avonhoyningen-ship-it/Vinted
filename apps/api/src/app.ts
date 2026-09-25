@@ -2,7 +2,10 @@ import cors from "cors";
 import express from "express";
 import { env } from "./config/env.js";
 import { requireAuth } from "./lib/auth.js";
-import { errorHandler, h } from "./lib/http.js";
+import { errorHandler, h, idParam } from "./lib/http.js";
+import { helperAdapter } from "./cloud/helperAdapter.js";
+import { cloudAssistRouter, connectAccountViaHelper, helperRouter, helperTokensRouter } from "./cloud/helperRoutes.js";
+import { vintedClient } from "./vinted/vintedClient.js";
 import { cloudAuth } from "./cloud/auth.js";
 import { billingRouter, billingWebhook, meHandler } from "./cloud/billing.js";
 import { accountsRouter } from "./modules/accounts/routes.js";
@@ -24,7 +27,10 @@ export function createApp() {
   app.use(cors({ origin: origins, credentials: true }));
   // Stripe signs the raw body: this route must come before the JSON parser.
   if (env.appMode === "cloud") app.post("/api/billing/webhook", ...billingWebhook);
-  app.use(express.json({ limit: "2mb" }));
+  // The PC helper sends whole listing/sales lists back – allow larger bodies there.
+  const jsonSmall = express.json({ limit: "2mb" });
+  const jsonLarge = express.json({ limit: "20mb" });
+  app.use((req, res, next) => (req.path.startsWith("/api/helper/") ? jsonLarge : jsonSmall)(req, res, next));
   app.use((_req, res, next) => {
     res.setHeader("x-content-type-options", "nosniff");
     res.setHeader("referrer-policy", "same-origin");
@@ -36,6 +42,12 @@ export function createApp() {
     app.use("/api", cloudAuth);
     app.get("/api/me", h(meHandler));
     app.use("/api/billing", billingRouter);
+    // PC helper: pairing keys (dashboard), job polling (helper, own key), Vinted via helper.
+    app.use("/api/helper-tokens", helperTokensRouter);
+    app.use("/api/helper", helperRouter);
+    app.post("/api/accounts/:id/connect-helper", h(async (req, res) => res.json(await connectAccountViaHelper(idParam(req)))));
+    app.use("/api/assist", cloudAssistRouter);
+    vintedClient.useAdapter(helperAdapter, 0);
   } else {
     // Login (cookie session) or bearer API_TOKEN; open only if neither is configured.
     app.use("/api/auth", authRouter);

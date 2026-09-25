@@ -3,6 +3,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useToast } from "@/components/Toasts";
 import { AccountForm } from "@/components/AccountForm";
+import { HelperCard } from "@/components/HelperCard";
+import { CLOUD } from "@/lib/mode";
 import { Empty, ErrorBox, Modal, PageHead, StatusBadge } from "@/components/ui";
 import { api, relative } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -13,6 +15,22 @@ export default function AccountsPage() {
   const { data, error, reload } = useApi<Account[]>("/accounts");
   const [adding, setAdding] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
+  const [connecting, setConnecting] = useState<number | null>(null);
+
+  /** Cloud: the PC helper takes the login from the Vinted-Chrome. */
+  async function connectHelper(id: number) {
+    setConnecting(id);
+    try {
+      const r = await api<{ account: Account; error: string | null }>(`/accounts/${id}/connect-helper`, { method: "POST" });
+      if (r.error) toast({ kind: "error", text: `Verbunden, aber Abruf fehlgeschlagen: ${r.error}` });
+      else toast({ kind: "info", text: `Verbunden${r.account.username ? ` als @${r.account.username}` : ""}` });
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    } finally {
+      setConnecting(null);
+      void reload();
+    }
+  }
 
   async function sync(id: number) {
     setSyncing(id);
@@ -34,6 +52,7 @@ export default function AccountsPage() {
         <button className="btn primary" onClick={() => setAdding(true)}>+ Account verbinden</button>
       </PageHead>
       <ErrorBox error={error} />
+      {CLOUD && <div style={{ marginBottom: 16 }}><HelperCard /></div>}
       {data && !data.length && <div className="card"><Empty>Noch kein Account verbunden.</Empty></div>}
       <div className="grid grid-3">
         {data?.map((a) => (
@@ -55,6 +74,11 @@ export default function AccountsPage() {
             <div className="row small muted">Letzter Sync {relative(a.last_sync_at)}{!a.polling_enabled && " · Polling pausiert"}</div>
             <div className="row">
               <button className="btn small" disabled={syncing === a.id || !a.has_session} onClick={() => sync(a.id)}>{syncing === a.id ? "Synchronisiere…" : "Jetzt synchronisieren"}</button>
+              {CLOUD && (
+                <button className="btn small" disabled={connecting === a.id} onClick={() => connectHelper(a.id)}>
+                  {connecting === a.id ? "Verbinde…" : a.has_session ? "Login neu übernehmen" : "Mit PC-Helfer verbinden"}
+                </button>
+              )}
               <Link className="btn small" href={`/accounts/${a.id}`}>Details</Link>
             </div>
           </div>

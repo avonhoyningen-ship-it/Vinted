@@ -10,6 +10,7 @@
     "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=../../.env dist/index.js",
     "test": "vitest run",
     "test:postgres": "TEST_DB=postgres vitest run",
+    "helper": "tsx src/helper/main.ts",
     "migrate:cloud": "tsx --env-file-if-exists=../../.env src/tools/migrateToCloud.ts",
     "db:schema": "tsx src/db/printSchema.ts > ../../supabase/schema.sql",
     "typecheck": "tsc -p tsconfig.json --noEmit"

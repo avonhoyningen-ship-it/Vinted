@@ -6,6 +6,8 @@ export interface VintedSession {
   vintedUserId?: string | null;
   /** Optional `refresh_token_web` cookie; lets the client pick up renewed access tokens. */
   refreshToken?: string | null;
+  /** Cloud: the dashboard's account id – the PC helper holds the login for it. */
+  accountId?: number;
   /** Called when Vinted hands out renewed tokens for the same user, so they can be stored. */
   onTokens?: (accessToken: string, refreshToken: string | null) => void | Promise<void>;
 }

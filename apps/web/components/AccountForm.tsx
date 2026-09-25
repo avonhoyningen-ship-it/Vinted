@@ -4,6 +4,7 @@ import { useToast } from "@/components/Toasts";
 import { ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { CLOUD } from "@/lib/mode";
 import type { Account } from "@/lib/types";
 
 export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account; onSaved: () => void; onCancel: () => void }) {
@@ -40,7 +41,7 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
         setError(`Verbindung fehlgeschlagen: ${res.error}`);
         return;
       }
-      toast({ kind: "info", text: `Verbunden als @${res.account.username} (${res.account.followers} Follower)` });
+      toast({ kind: "info", text: res.account.username ? `Verbunden als @${res.account.username} (${res.account.followers} Follower)` : "Account gespeichert – jetzt „Mit PC-Helfer verbinden“" });
       onSaved();
     } catch (e) {
       setError((e as Error).message);
@@ -58,6 +59,12 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
           {(domains ?? ["vinted.de"]).map((d) => <option key={d}>{d}</option>)}
         </select>
       </label>
+      {CLOUD ? (
+        <div className="small muted">
+          Den Vinted-Login gibst du hier nicht ein: Nach dem Speichern auf der Account-Karte „Mit PC-Helfer verbinden“ klicken –
+          der Helfer übernimmt die Anmeldung aus deinem Vinted-Chrome und behält sie auf deinem PC.
+        </div>
+      ) : (<>
       <label className="field">access_token_web {initial?.session_hint && <span className="muted">(gespeichert: {initial.session_hint} – leer lassen zum Behalten)</span>}
         <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder="beginnt mit eyJ…" />
       </label>
@@ -70,6 +77,7 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
         Das access_token_web gilt nur ca. 24 Stunden; mit dem refresh_token_web kann das Dashboard die Verbindung erneuern.
         Es wird <strong>kein Passwort</strong> gespeichert; beide Werte liegen AES-256-verschlüsselt in der Datenbank.
       </div>
+      </>)}
       <div className="form-grid">
         <label className="field">Abstand zwischen Veröffentlichungen (Min.)<input type="number" min={5} value={interval} onChange={(e) => setInterval(e.target.value)} placeholder="Standard" /></label>
         <label className="field">Automatisches Abrufen

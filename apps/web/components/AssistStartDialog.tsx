@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { CLOUD } from "@/lib/mode";
 import type { Account } from "@/lib/types";
 import { ErrorBox, Modal } from "./ui";
 
@@ -31,7 +32,7 @@ export function AssistStartDialog({ itemIds, onClose, onStarted }: { itemIds: nu
       <div className="stack">
         <ErrorBox error={error} />
         <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
-          <li>Das Vinted-Chrome muss laufen („Chrome fuer Vinted starten.bat“) und du musst dort bei Vinted eingeloggt sein.</li>
+          <li>Das Vinted-Chrome muss laufen („Chrome fuer Vinted starten.bat“) und du musst dort bei Vinted eingeloggt sein{CLOUD ? " – außerdem der PC-Helfer („PC-Helfer starten.bat“)" : ""}.</li>
           <li>Das Dashboard öffnet dort für jeden Artikel einen eigenen Tab „Artikel verkaufen“ und füllt Fotos, Titel, Beschreibung, Preis, Kategorie, Marke, Größe, Zustand, Farbe, Maße und Paketgröße aus – einen nach dem anderen, bitte so lange warten.</li>
           <li>Danach gehst du die Tabs durch, prüfst kurz und klickst jeweils selbst auf <strong>„Hochladen“</strong>.</li>
           <li>Jeder hochgeladene Artikel wird automatisch verknüpft, sein Tab schließt sich und der nächste kommt nach vorne. Tab schließen = überspringen.</li>

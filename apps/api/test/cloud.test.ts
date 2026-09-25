@@ -206,7 +206,13 @@ describe("cloud: login, subscription, access", () => {
     expect(zip.headers["content-type"]).toBe("application/zip");
   });
 
-  it("does not offer the local posting assistant in the cloud", async () => {
-    expect((await request(app).get("/api/assist/status").set(as("alice"))).status).toBe(404);
+  it("runs the posting assistant only through the PC helper in the cloud", async () => {
+    expect((await request(app).get("/api/assist/status").set(as("alice"))).body.state).toBe("idle");
+    const items = (await request(app).get("/api/archive").set(as("alice"))).body.items as { id: number; photo_count: number }[];
+    const withPhoto = items.find((i) => Number(i.photo_count) > 0)!;
+    const acc = await request(app).post("/api/accounts").set(as("alice")).send({ name: "Shop", domain: "vinted.de" });
+    const res = await request(app).post("/api/assist/start").set(as("alice")).send({ itemIds: [withPhoto.id], accountId: acc.body.account.id });
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatch(/PC-Helfer/);
   });
 });

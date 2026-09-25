@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
 import { h } from "../../lib/http.js";
-import { getAssistStatus, skipAssist, startAssist, stopAssist } from "./assistant.js";
+import { getAssistStatus, setAssistSource, skipAssist, startAssist, stopAssist } from "./assistant.js";
+import { localAssistSource } from "./localSource.js";
+
+setAssistSource(localAssistSource);
 
 export const assistRouter = Router();
 

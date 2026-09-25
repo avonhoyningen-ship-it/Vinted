@@ -45,7 +45,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <>
       <div className="shell">
         <Nav locked={state === "unpaid"} />
-        <main className="main">{!CLOUD && <AssistBanner />}{children}</main>
+        <main className="main">{state === "in" && <AssistBanner />}{children}</main>
       </div>
       {state === "in" && <SaleNotifier />}
     </>
