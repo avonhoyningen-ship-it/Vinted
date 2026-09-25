@@ -9,6 +9,7 @@ import { h, HttpError } from "../../lib/http.js";
 import { DEFAULT_SETTINGS, getSettings, setSettings } from "../../lib/settings.js";
 import { photoPath } from "../../storage/photos.js";
 import { aiEnabled } from "../listings/ai.js";
+import { vintedClient } from "../../vinted/vintedClient.js";
 import { pollAccounts } from "../../workers/scheduler.js";
 
 export const systemRouter = Router();
@@ -20,6 +21,7 @@ systemRouter.get("/health", (_req, res) => {
 systemRouter.get("/info", (_req, res) => {
   res.json({
     aiEnabled: aiEnabled(),
+    canPublish: vintedClient.canPublish,
     aiModel: env.anthropicModel,
     pollIntervalMinutes: env.pollIntervalMinutes,
     publishIntervalMinutes: env.publishIntervalMinutes,

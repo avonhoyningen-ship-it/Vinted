@@ -3,7 +3,9 @@ import { z } from "zod";
 import { db, nowIso } from "../../db/index.js";
 import { h, HttpError, idParam } from "../../lib/http.js";
 import { upload } from "../../lib/upload.js";
-import { storePhoto } from "../../storage/photos.js";
+import fs from "node:fs";
+import { createZip } from "../../lib/zip.js";
+import { photoPath, storePhoto } from "../../storage/photos.js";
 import { getAccount } from "../accounts/repo.js";
 import { confirmPrice, refreshSuggestion } from "../pricing/engine.js";
 import { enqueue } from "../listings/queue.js";
@@ -62,6 +64,19 @@ archiveRouter.post("/:id/photos", upload.array("photos", 20), h(async (req, res)
   res.status(201).json(added);
 }));
 
+/** All photos of an item as ZIP, in listing order (01.jpg, 02.jpg, …) – for manual upload to Vinted. */
+archiveRouter.get("/:id/photos.zip", h((req, res) => {
+  const id = idParam(req);
+  const item = getItem(id);
+  const photos = itemDetail(id).photos.slice(0, 20);
+  if (!photos.length) throw new HttpError(404, "Keine Fotos vorhanden");
+  const zip = createZip(photos.map((p, i) => ({ name: `${String(i + 1).padStart(2, "0")}.jpg`, data: fs.readFileSync(photoPath(p.file_name)) })));
+  const safe = item.title.replace(/[^\p{L}\p{N} _-]+/gu, "").trim().slice(0, 60) || `artikel-${id}`;
+  res.setHeader("content-type", "application/zip");
+  res.setHeader("content-disposition", `attachment; filename="${encodeURIComponent(safe)}.zip"; filename*=UTF-8''${encodeURIComponent(safe)}.zip`);
+  res.send(zip);
+}));
+
 archiveRouter.put("/:id/photos/order", h((req, res) => {
   const id = idParam(req);
   const { ids } = z.object({ ids: z.array(z.number().int()) }).parse(req.body);
@@ -117,6 +132,8 @@ archiveRouter.post("/:id/listings", h((req, res) => {
     item_id: id, account_id: input.accountId, vinted_item_id: vintedItemId, url: input.url ?? null, title: item.title,
     description: item.description, price_cents: input.priceCents ?? item.price_cents, currency: item.currency, listed_at: input.listedAt,
   });
+  // Posted with this price → it is the seller's price now (and a learning example).
+  if (listing.price_cents && !getItem(id).price_confirmed) confirmPrice(id, listing.price_cents, "confirmed");
   // Close a pending queue entry for this item/account, if any.
   db.prepare("UPDATE publish_queue SET status = 'done', listing_id = ?, updated_at = ? WHERE item_id = ? AND account_id = ? AND status IN ('pending','failed')")
     .run(listing.id, nowIso(), id, input.accountId);

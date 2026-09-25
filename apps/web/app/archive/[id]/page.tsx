@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { EnqueueDialog } from "@/components/EnqueueDialog";
 import { ItemEditor } from "@/components/ItemEditor";
 import { PhotoManager } from "@/components/PhotoManager";
+import { VintedPostHelper } from "@/components/VintedPostHelper";
 import { useToast } from "@/components/Toasts";
 import { Empty, ErrorBox, Modal, PageHead, StatusBadge } from "@/components/ui";
 import { api, dateTime, euro, parseEuro } from "@/lib/api";
@@ -25,8 +26,10 @@ export default function ArchiveDetailPage() {
   const router = useRouter();
   const toast = useToast();
   const { data, error, reload } = useApi<Detail>(`/archive/${id}`);
-  const info = useApi<{ aiEnabled: boolean }>("/info");
+  const info = useApi<{ aiEnabled: boolean; canPublish: boolean }>("/info");
   const [reupload, setReupload] = useState(false);
+  const params = useSearchParams();
+  const [post, setPost] = useState(params.get("post") === "1");
   const [manual, setManual] = useState(false);
 
   if (error) return <ErrorBox error={error} />;
@@ -52,7 +55,9 @@ export default function ArchiveDetailPage() {
   return (
     <>
       <PageHead title={item.title} sub={<><StatusBadge status={item.status} /> · angelegt {dateTime(item.created_at)}</>}>
-        <button className="btn primary" disabled={!data.photos.length} onClick={() => setReupload(true)}>{summary.timesListed ? "↻ Erneut einstellen" : "Einstellen"}</button>
+        {info.data?.canPublish
+          ? <button className="btn primary" disabled={!data.photos.length} onClick={() => setReupload(true)}>{summary.timesListed ? "↻ Erneut einstellen" : "Einstellen"}</button>
+          : <button className="btn primary" disabled={!data.photos.length} onClick={() => setPost(true)}>{summary.timesListed ? "↻ Erneut bei Vinted einstellen" : "Bei Vinted einstellen"}</button>}
         <button className="btn" onClick={() => setManual(true)}>Manuell erfasst…</button>
         {item.status !== "archived" && !hasActive && (
           <button className="btn" onClick={() => api(`/archive/${item.id}`, { method: "PATCH", json: { status: "archived" } }).then(() => reload())}>Archivieren</button>
@@ -123,6 +128,7 @@ export default function ArchiveDetailPage() {
         </div>
       </div>
 
+      {post && <VintedPostHelper item={item} photoCount={Math.min(data.photos.length, 20)} onClose={() => setPost(false)} onDone={() => { setPost(false); void reload(); }} />}
       {reupload && <EnqueueDialog itemIds={[item.id]} reuploadItemId={item.id} onClose={() => setReupload(false)} onDone={() => { setReupload(false); void reload(); }} />}
       {manual && <ManualListingDialog item={item} onClose={() => setManual(false)} onDone={() => { setManual(false); void reload(); }} />}
     </>

@@ -177,7 +177,9 @@ export function createListing(data: {
     INSERT INTO listings (item_id, account_id, vinted_item_id, url, title, description, price_cents, currency, status, listed_at, favourites, views)
     VALUES (@item_id, @account_id, @vinted_item_id, @url, @title, @description, @price_cents, @currency, @status, @listed_at, @favourites, @views)
   `).run({
-    vinted_item_id: null, url: null, status: "active", listed_at: nowIso(), favourites: 0, views: 0, ...data,
+    vinted_item_id: null, url: null, status: "active", listed_at: nowIso(), favourites: 0, views: 0,
+    // Optional fields left undefined keep their defaults (SQLite can't bind undefined).
+    ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)),
   });
   recomputeItemStatus(data.item_id);
   return getListing(Number(r.lastInsertRowid));

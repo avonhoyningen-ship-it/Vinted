@@ -147,7 +147,7 @@ function NewTab({ onDone }: { onDone: () => void }) {
 function DraftsTab() {
   const toast = useToast();
   const { data, error, reload } = useApi<Item[]>("/listings/drafts");
-  const info = useApi<{ aiEnabled: boolean }>("/info");
+  const info = useApi<{ aiEnabled: boolean; canPublish: boolean }>("/info");
   const [selected, setSelected] = useState<number[]>([]);
   const [enqueue, setEnqueue] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
@@ -197,7 +197,7 @@ function DraftsTab() {
           onKeyDown={(e) => e.key === "Enter" && selected.length && setPriceForSelection()} aria-label="Preis für Auswahl" />
         <button className="btn" disabled={!selected.length || !bulkPrice} onClick={setPriceForSelection}>Preis für Auswahl setzen</button>
         <button className="btn" disabled={!withSuggestion.length} onClick={acceptSelection}>✓ Vorschläge übernehmen ({withSuggestion.length})</button>
-        <button className="btn primary" disabled={!selected.length} onClick={() => setEnqueue(true)}>In Warteschlange…</button>
+        {info.data?.canPublish && <button className="btn primary" disabled={!selected.length} onClick={() => setEnqueue(true)}>In Warteschlange…</button>}
       </div>
       {data && !data.length && <div className="card"><Empty>Keine Entwürfe. <Link href="/listings?tab=new">Neue Artikel erstellen →</Link></Empty></div>}
       {!!data?.length && (
@@ -219,6 +219,7 @@ function DraftsTab() {
                     <td><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>
                       {info.data?.aiEnabled && <button className="btn small" disabled={busy === d.id} onClick={() => ai(d.id)}>{busy === d.id ? "KI…" : "✨ KI"}</button>}
                       <Link className="btn small" href={`/archive/${d.id}`}>Bearbeiten</Link>
+                      {!info.data?.canPublish && <Link className="btn small primary" href={`/archive/${d.id}?post=1`}>Einstellen</Link>}
                     </div></td>
                   </tr>
                 );
@@ -237,10 +238,14 @@ function DraftsTab() {
 function QueueTab() {
   const toast = useToast();
   const { data, error, reload } = useApi<QueueEntry[]>("/listings/queue");
+  const info = useApi<{ canPublish: boolean }>("/info");
   const act = (path: string) => api(path, { method: "POST", json: {} }).then(() => reload()).catch((e) => toast({ kind: "error", text: e.message }));
   return (
     <div className="stack">
       <ErrorBox error={error} />
+      {info.data && !info.data.canPublish && (
+        <div className="alert">Automatisches Einstellen ist nicht verfügbar – Vinted bietet dafür keine offizielle Schnittstelle. Stelle Artikel über „Einstellen“ bei den Entwürfen bzw. „Bei Vinted einstellen“ im Archiv ein.</div>
+      )}
       <div className="row"><span className="small muted">Der Hintergrund-Worker prüft jede Minute auf fällige Einträge (max. einer pro Account und Durchlauf).</span><div className="spacer" /><button className="btn small" onClick={() => reload()}>Aktualisieren</button></div>
       {data && !data.length && <div className="card"><Empty>Warteschlange ist leer.</Empty></div>}
       {!!data?.length && (

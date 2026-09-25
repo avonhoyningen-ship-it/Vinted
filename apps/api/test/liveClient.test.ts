@@ -113,6 +113,15 @@ describe("connecting an account (real client)", () => {
     expect(JSON.stringify(archive.body)).not.toMatch(/Levi|Nike|Zara|reseller_/);
   }, 30_000);
 
+  it("does not pretend to publish: the queue is blocked with a clear message", async () => {
+    const acc = db.prepare("SELECT id FROM accounts WHERE status = 'connected' LIMIT 1").get() as { id: number };
+    const item = (await request(app).post("/api/archive").send({ title: "Test", price_cents: 1000 })).body;
+    const res = await request(app).post("/api/listings/queue").send({ itemIds: [item.id], accountId: Number(acc.id) });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Bei Vinted einstellen/);
+    expect((await request(app).get("/api/info")).body.canPublish).toBe(false);
+  });
+
   it("fails with a clear message instead of falling back to demo data", async () => {
     stubVinted(() => json({ code: 106, message: "Zugang verweigert", message_code: "access_denied" }, 403));
     const res = await request(app).post("/api/accounts").send({ name: "Kaputt", domain: "vinted.de", sessionToken: userToken });

@@ -37,6 +37,9 @@ function assertPublishable(itemId: number, accountId: number) {
  * starting after the last already-scheduled entry.
  */
 export function enqueue(input: z.infer<typeof enqueueInput>, isReupload = false): QueueRow[] {
+  if (!vintedClient.canPublish) {
+    throw new HttpError(409, "Automatisches Einstellen ist nicht verfügbar (keine offizielle Vinted-API). Nutze beim Artikel „Bei Vinted einstellen“.");
+  }
   const account = getAccount(input.accountId);
   if (!account.session_encrypted) throw new HttpError(400, "Account hat keine Session");
   input.itemIds.forEach((id) => assertPublishable(id, account.id));

@@ -94,6 +94,8 @@ export interface SendMessageInput {
  */
 export interface VintedAdapter {
   readonly name: string;
+  /** Whether createListing works (false for the live client: no official Vinted API). */
+  readonly canPublish: boolean;
   verifySession(s: VintedSession): Promise<VintedProfile>;
   fetchOwnListings(s: VintedSession): Promise<RemoteListing[]>;
   fetchSales(s: VintedSession): Promise<RemoteSale[]>;

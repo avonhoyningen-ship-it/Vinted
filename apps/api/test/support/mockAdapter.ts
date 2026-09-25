@@ -105,6 +105,7 @@ export function mockReset() {
 
 export const mockAdapter: VintedAdapter = {
   name: "mock",
+  canPublish: true,
   async verifySession(s): Promise<VintedProfile> {
     const acc = ensure(s);
     return {

@@ -308,4 +308,15 @@ INSERT OR IGNORE INTO price_examples (item_id, source, title, brand, category, s
   FROM sales s JOIN items i ON i.id = s.item_id GROUP BY i.id;
 `,
   },
+  {
+    id: 4,
+    name: "cancel_unpublishable_queue",
+    // Entries could never be published (no official Vinted API): cancel them so items are free again.
+    sql: `
+UPDATE publish_queue SET status = 'cancelled', last_error = 'Automatisches Einstellen nicht verfügbar – über „Bei Vinted einstellen“ einstellen', updated_at = ${NOW}
+  WHERE status IN ('pending','processing','failed');
+UPDATE items SET status = CASE WHEN EXISTS (SELECT 1 FROM listings l WHERE l.item_id = items.id) THEN status ELSE 'draft' END
+  WHERE status = 'queued';
+`,
+  },
 ];

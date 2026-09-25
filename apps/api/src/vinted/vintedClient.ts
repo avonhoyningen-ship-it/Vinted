@@ -28,6 +28,10 @@ export class VintedClient {
     return this.adapter.name;
   }
 
+  get canPublish() {
+    return this.adapter.canPublish;
+  }
+
   private async call<T>(accountKey: string, fn: () => Promise<T>): Promise<T> {
     let attempt = 0;
     for (;;) {

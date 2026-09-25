@@ -242,6 +242,7 @@ async function currentUser(s: VintedSession): Promise<ApiUser> {
 
 export const liveAdapter: VintedAdapter = {
   name: "live",
+  canPublish: false,
 
   async verifySession(s): Promise<VintedProfile> {
     const u = await currentUser(s);

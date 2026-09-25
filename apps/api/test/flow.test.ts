@@ -124,6 +124,22 @@ describe("end-to-end (mock mode)", () => {
     expect(detail.body.listings[0].price_cents).toBe(3000);
   });
 
+  it("downloads all photos of an item as a valid ZIP", async () => {
+    const d = (await request(app).post("/api/listings/drafts").attach("photos", await jpegWithExif(), "z.jpg")).body.item;
+    const res = await request(app).get(`/api/archive/${d.id}/photos.zip`).buffer(true).parse((r, cb) => {
+      const chunks: Buffer[] = [];
+      r.on("data", (c: Buffer) => chunks.push(c));
+      r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(res.status).toBe(200);
+    const zip = res.body as Buffer;
+    expect(zip.readUInt32LE(0)).toBe(0x04034b50);
+    const fs = await import("node:fs");
+    fs.writeFileSync("/tmp/vinted-test.zip", zip);
+    const { execSync } = await import("node:child_process");
+    expect(execSync("unzip -t /tmp/vinted-test.zip").toString()).toMatch(/No errors detected/);
+  });
+
   it("strips photo metadata (EXIF) on upload", async () => {
     const res = await request(app).post("/api/listings/drafts").attach("photos", await jpegWithExif(), "x.jpg");
     expect(res.status).toBe(201);
@@ -145,6 +161,15 @@ describe("end-to-end (mock mode)", () => {
     expect(res.status).toBe(201);
     const gap = Date.parse(res.body[1].scheduled_at) - Date.parse(res.body[0].scheduled_at);
     expect(gap).toBe(30 * 60_000);
+  });
+
+  it("links a listing that was posted manually on Vinted", async () => {
+    const d = (await request(app).post("/api/listings/drafts").attach("photos", await sharp({ create: { width: 30, height: 30, channels: 3, background: "#0f0" } }).jpeg().toBuffer(), "m.jpg")
+      .field("data", JSON.stringify({ title: "Manuell", price_cents: 1500 }))).body.item;
+    const res = await request(app).post(`/api/archive/${d.id}/listings`).send({ accountId: accountB, url: "https://www.vinted.at/items/987654-manuell" });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ vinted_item_id: "987654", price_cents: 1500, status: "active" });
+    expect((await request(app).get(`/api/archive/${d.id}`)).body.item.status).toBe("active");
   });
 
   it("protects listed items and accounts from deletion", async () => {
