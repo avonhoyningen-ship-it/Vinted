@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+# Cloud API for Railway (APP_MODE=cloud): only the API, runs permanently
+# (automations, PC-helper queue). The web app is deployed on Vercel.
+
+FROM node:22-bookworm-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+RUN npm ci --workspace apps/api --include-workspace-root
+COPY apps/api apps/api
+RUN npm run build -w apps/api && npm prune --omit=dev --workspace apps/api --include-workspace-root
+
+FROM node:22-bookworm-slim
+WORKDIR /app
+ENV NODE_ENV=production APP_MODE=cloud
+COPY --from=build /app/package.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/api/package.json ./apps/api/
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+WORKDIR /app/apps/api
+# Railway sets PORT; the API listens on it.
+CMD ["node", "--disable-warning=ExperimentalWarning", "dist/index.js"]

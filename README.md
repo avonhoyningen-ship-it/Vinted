@@ -9,6 +9,11 @@ Sale-Sound und Statistiken. Läuft komplett lokal bzw. auf einem eigenen Server.
 - **Datenbank:** SQLite (in Node.js eingebaut, `node:sqlite` – nichts zu kompilieren), Fotos im Dateisystem – `data/`
 - **Voraussetzung:** Node.js 22.13 oder neuer (empfohlen: aktuelle LTS)
 
+> **Cloud-Version (SaaS):** Dasselbe Dashboard als öffentliche Web-App mit Nutzerkonten (Clerk), Monats-Abo
+> (Stripe, Karte + PayPal), Supabase-Datenbank mit Row Level Security und einem PC-Helfer für den Vinted-Zugriff –
+> Einrichtung, Checkliste und Test-Anleitung in **[DEPLOY-CLOUD.md](DEPLOY-CLOUD.md)**. Ohne `APP_MODE=cloud`
+> läuft alles wie bisher lokal.
+
 ## Schnellstart
 
 ```bash

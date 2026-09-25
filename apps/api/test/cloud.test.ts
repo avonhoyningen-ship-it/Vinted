@@ -216,3 +216,32 @@ describe("cloud: login, subscription, access", () => {
     expect(res.body.error).toMatch(/PC-Helfer/);
   });
 });
+
+describe("stripe:setup", () => {
+  it("creates product, monthly price, webhook with all events and the customer portal – and reuses them", async () => {
+    const { setupStripe, WEBHOOK_EVENTS } = await import("../src/tools/stripeSetup.js");
+    const state = { products: [] as { id: string; name: string }[], prices: [] as Record<string, unknown>[], hooks: [] as Record<string, unknown>[], portals: 0 };
+    const fake = {
+      products: { list: async () => ({ data: state.products }), create: async (p: { name: string }) => { const x = { id: `prod_${state.products.length + 1}`, name: p.name }; state.products.push(x); return x; } },
+      prices: {
+        list: async () => ({ data: state.prices }),
+        create: async (p: Record<string, unknown>) => { const x = { id: "price_1", ...p, unit_amount: p.unit_amount }; state.prices.push(x); return x; },
+      },
+      webhookEndpoints: {
+        list: async () => ({ data: state.hooks }),
+        create: async (p: Record<string, unknown>) => { const x = { id: "we_1", secret: "whsec_new", ...p }; state.hooks.push(x); return x; },
+        update: async () => ({}),
+      },
+      billingPortal: { configurations: { create: async () => { state.portals++; return {}; } } },
+    } as unknown as import("stripe").default;
+    const first = await setupStripe(fake, { apiUrl: "https://api.example.com/", amountCents: 999, appUrl: "https://app.example.com" });
+    expect(first).toMatchObject({ priceId: "price_1", webhookSecret: "whsec_new", webhookUrl: "https://api.example.com/api/billing/webhook" });
+    expect(state.prices[0]).toMatchObject({ unit_amount: 999, currency: "eur", recurring: { interval: "month" } });
+    expect(state.hooks[0]!.enabled_events).toEqual(WEBHOOK_EVENTS);
+    const again = await setupStripe(fake, { apiUrl: "https://api.example.com", amountCents: 999 });
+    expect(again.webhookSecret).toBeNull();
+    expect(state.products).toHaveLength(1);
+    expect(state.prices).toHaveLength(1);
+    expect(state.hooks).toHaveLength(1);
+  });
+});

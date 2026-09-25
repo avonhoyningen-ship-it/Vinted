@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:postgres": "TEST_DB=postgres vitest run",
     "helper": "tsx src/helper/main.ts",
+    "stripe:setup": "tsx --env-file-if-exists=../../.env src/tools/stripeSetup.ts",
     "migrate:cloud": "tsx --env-file-if-exists=../../.env src/tools/migrateToCloud.ts",
     "db:schema": "tsx src/db/printSchema.ts > ../../supabase/schema.sql",
     "typecheck": "tsc -p tsconfig.json --noEmit"
