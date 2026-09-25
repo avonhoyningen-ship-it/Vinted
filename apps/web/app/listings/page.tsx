@@ -14,7 +14,7 @@ import { api, dateTime, euro, parseEuro, photoUrl } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { Item, Listing, QueueEntry, Template } from "@/lib/types";
 
-const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", pricing: "Preise", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
+const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", uploaded: "Hochgeladen", pricing: "Preise", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
 type Tab = keyof typeof TABS;
 
 function ListingsInner() {
@@ -33,6 +33,7 @@ function ListingsInner() {
       {tab === "folder" && <FolderTab onDone={() => setTab("drafts")} />}
       {tab === "new" && <NewTab onDone={() => setTab("drafts")} />}
       {tab === "drafts" && <DraftsTab />}
+      {tab === "uploaded" && <UploadedTab />}
       {tab === "pricing" && <PricingTab />}
       {tab === "queue" && <QueueTab />}
       {tab === "active" && <ActiveTab />}
@@ -148,6 +149,7 @@ function NewTab({ onDone }: { onDone: () => void }) {
 function DraftsTab() {
   const toast = useToast();
   const { data, error, reload } = useApi<Item[]>("/listings/drafts");
+  useLiveReload(reload); // uploaded drafts move to "Hochgeladen" right away
   const info = useApi<{ aiEnabled: boolean; canPublish: boolean }>("/info");
   const [selected, setSelected] = useState<number[]>([]);
   const [enqueue, setEnqueue] = useState(false);
@@ -311,6 +313,48 @@ function ActiveTab() {
       )}
     </div>
   );
+}
+
+// ---------- uploaded drafts ----------
+
+function UploadedTab() {
+  const { data, error, reload } = useApi<Listing[]>("/listings/uploaded");
+  useLiveReload(reload);
+  return (
+    <div className="stack">
+      <ErrorBox error={error} />
+      {data && !data.length && <div className="card"><Empty>Noch nichts hochgeladen. Entwürfe landen hier, sobald sie bei Vinted online sind.</Empty></div>}
+      {!!data?.length && (
+        <div className="card table-wrap">
+          <table>
+            <thead><tr><th></th><th>Titel</th><th>Account</th><th className="num">Preis</th><th>Hochgeladen</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {data.map((l) => (
+                <tr key={l.id}>
+                  <td style={{ width: 56 }}><Thumb src={photoUrl(l.cover_photo)} /></td>
+                  <td><Link href={`/archive/${l.item_id}`}>{l.title}</Link></td>
+                  <td>{l.account_name}</td>
+                  <td className="num">{euro(l.price_cents, l.currency)}</td>
+                  <td>{dateTime(l.listed_at)}</td>
+                  <td><StatusBadge status={l.status} /></td>
+                  <td>{l.url && <a href={l.url} target="_blank" rel="noreferrer">Vinted ↗</a>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Reloads when something was published (SSE "published" → "dashboard-refresh"). */
+function useLiveReload(reload: () => unknown) {
+  useEffect(() => {
+    const on = () => void reload();
+    window.addEventListener("dashboard-refresh", on);
+    return () => window.removeEventListener("dashboard-refresh", on);
+  }, [reload]);
 }
 
 // ---------- templates ----------

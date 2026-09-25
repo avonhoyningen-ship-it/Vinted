@@ -206,6 +206,12 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     expect(done.state).toBe("idle");
     expect(done.tabs.map((t: { state: string }) => t.state)).toEqual(["done", "done"]);
     expect((await request(app).get(`/api/archive/${tee.id}`)).body.item.status).toBe("active");
+    // Uploaded drafts leave "Entwürfe" and show up under "Hochgeladen".
+    const drafts = (await request(app).get("/api/listings/drafts")).body.map((d: { id: number }) => d.id);
+    expect(drafts).not.toContain(tee.id);
+    expect(drafts).not.toContain(hoodie.id);
+    const uploaded = (await request(app).get("/api/listings/uploaded")).body.map((l: { item_id: number }) => l.item_id);
+    expect(uploaded).toEqual(expect.arrayContaining([tee.id, hoodie.id]));
     expect((await request(app).get(`/api/archive/${hoodie.id}`)).body.listings[0].vinted_item_id).toBe(String(5550000 + "Vintage College Hoodie grau".length));
     await b.close();
   }, 120_000);

@@ -28,6 +28,17 @@ listingsRouter.get("/", h((req, res) => {
   res.json(rows);
 }));
 
+/** Everything that was uploaded to Vinted (newest first), whatever happened afterwards – the "Hochgeladen" tab. */
+listingsRouter.get("/uploaded", h((_req, res) => {
+  res.json(db.prepare(`
+    SELECT l.*, a.name AS account_name,
+      (SELECT file_name FROM item_photos p WHERE p.item_id = l.item_id ORDER BY position, id LIMIT 1) AS cover_photo,
+      CAST((julianday('now') - julianday(l.listed_at)) AS INTEGER) AS days_online
+    FROM listings l JOIN accounts a ON a.id = l.account_id
+    ORDER BY l.listed_at DESC, l.id DESC LIMIT 500
+  `).all());
+}));
+
 // ---------- drafts (photo-first creation) ----------
 
 /** "Laenge_70_Breite-55" → "Laenge 70 Breite 55" (folder names carry the measurements). */
