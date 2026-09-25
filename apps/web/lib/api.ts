@@ -24,6 +24,10 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
   }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
+  if (!res.ok && res.status >= 500 && !(data as { error?: string }).error) {
+    // No JSON error from our API → the API process itself is not reachable.
+    throw new ApiError(res.status, "Der Hintergrunddienst (API) läuft nicht. Bitte im schwarzen Dashboard-Fenster nach einer roten Fehlermeldung schauen – meist hilft: Fenster schließen, im Ordner Vinted „npm install“ ausführen und neu starten.");
+  }
   if (!res.ok) {
     const details = (data as { details?: { message?: string; path?: unknown[] }[] }).details;
     const detailMsg = Array.isArray(details) ? details.map((d) => d.message).filter(Boolean).join(", ") : "";

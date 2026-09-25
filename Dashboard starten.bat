@@ -6,11 +6,10 @@ cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 goto nonode
 
-if exist node_modules goto installed
-echo Erster Start: Pakete werden installiert, das dauert ein paar Minuten ...
-call npm.cmd install
+rem Pakete bei jedem Start abgleichen (nach "git pull" koennen neue dazukommen).
+if exist node_modules (echo Pruefe Pakete ...) else (echo Erster Start: Pakete werden installiert, das dauert ein paar Minuten ...)
+call npm.cmd install --no-audit --no-fund --loglevel=error
 if errorlevel 1 goto failed
-:installed
 
 if exist .env goto configured
 call npm.cmd run setup
