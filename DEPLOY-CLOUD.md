@@ -64,8 +64,9 @@ Plane etwa 1–2 Stunden ein. Zuerst alles im **Testmodus** (Stripe `sk_test_…
    `APP_MODE=cloud`, `APP_URL`, `TRUST_PROXY=true`, `ENCRYPTION_KEY` (z. B. mit `openssl rand -base64 32`), `DATABASE_URL`, `DATABASE_CA_CERT`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CLERK_SECRET_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`.
    Für die Stripe-Werte zuerst Schritt D ausführen.
 3. **Settings → Networking → Generate Domain** (oder eigene Domain `api.deine-domain.de`). Diese Adresse ist die „API-Adresse“.
-4. **Nur eine Instanz** laufen lassen (ist in `railway.json` eingestellt): die Warteschlange für den PC-Helfer liegt im Speicher.
-5. Test: `https://<api-adresse>/api/health` zeigt `{"ok":true}`.
+4. Optional für E-Mails (Kündigungsbestätigung): `RESEND_API_KEY`, `MAIL_FROM`, `OPERATOR_EMAIL` ([resend.com](https://resend.com), Domain dort verifizieren).
+5. Mehrere Instanzen sind möglich (Railway → Settings → Replicas): Live-Meldungen und PC-Helfer-Aufträge laufen über Postgres LISTEN/NOTIFY, die Hintergrundjobs laufen per Sperre nur auf einer Instanz. Dafür den **Session pooler** von Supabase verwenden (nicht den Transaction pooler auf Port 6543).
+6. Test: `https://<api-adresse>/api/health` zeigt `{"ok":true}`.
 
 ### D. Stripe (Abo, Karte + PayPal)
 1. Konto auf [stripe.com](https://stripe.com) anlegen, oben rechts **Testmodus** an.
@@ -79,7 +80,8 @@ Plane etwa 1–2 Stunden ein. Zuerst alles im **Testmodus** (Stripe `sk_test_…
 
 ### E. Vercel (Web-App)
 1. Auf [vercel.com](https://vercel.com): **Add New → Project** → dieses Repository, **Root Directory: `apps/web`**, Framework Next.js.
-2. **Environment Variables**: `NEXT_PUBLIC_APP_MODE=cloud`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up`, `API_INTERNAL_URL=https://<api-adresse>`, `NEXT_PUBLIC_DIRECT_API_URL=https://<api-adresse>`, `NEXT_PUBLIC_PRICE_LABEL=9,99 € / Monat`.
+2. **Environment Variables**: `NEXT_PUBLIC_APP_MODE=cloud`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up`, `API_INTERNAL_URL=https://<api-adresse>`, `NEXT_PUBLIC_DIRECT_API_URL=https://<api-adresse>`, `NEXT_PUBLIC_PRICE_LABEL=9,99 € / Monat`,
+   deine Betreiberangaben `NEXT_PUBLIC_LEGAL_NAME`, `…_STREET`, `…_CITY`, `…_EMAIL` (optional `…_PHONE`, `…_VAT_ID`, `…_REPRESENTATIVE`, `…_REGISTER`) und nach Schritt H `NEXT_PUBLIC_HELPER_DOWNLOAD_URL`.
    `API_INTERNAL_URL` und alle `NEXT_PUBLIC_…`-Werte werden beim Build eingebaut. Nach einer Änderung neu deployen.
 3. Deploy. Die Landingpage erscheint unter der Vercel-Adresse.
 
@@ -96,10 +98,15 @@ Plane etwa 1–2 Stunden ein. Zuerst alles im **Testmodus** (Stripe `sk_test_…
    ```
    Artikel, Fotos, Listings, Verkäufe, Regeln, Vorlagen, Preise und Einstellungen werden übertragen. Vinted-Logins werden absichtlich **nicht** übertragen: die Accounts danach im Dashboard mit dem PC-Helfer verbinden.
 
-### H. PC-Helfer für Kunden
-1. Kunde öffnet im Dashboard **Accounts → PC-Helfer → Neuen Schlüssel erzeugen**.
-2. Auf dem PC: Node.js LTS installieren, dieses Programm herunterladen, **„PC-Helfer starten.bat“** öffnen, die angezeigte API-Adresse und den Schlüssel eingeben.
-3. Im Vinted-Chrome bei Vinted einloggen, im Dashboard auf der Account-Karte **„Mit PC-Helfer verbinden“** klicken.
+### H. PC-Helfer für Kunden (Download ohne Node.js)
+1. Einmal das Download-Paket bauen und hochladen (auf deinem PC im Ordner `Vinted`, `SUPABASE_URL` und `SUPABASE_SERVICE_ROLE_KEY` in `.env`):
+   ```bash
+   npm run helper:package -- --api https://<api-adresse> --upload
+   ```
+   Das erzeugt `dist/ask-helper-windows.zip` (≈ 37 MB: Node.js für Windows, der Helfer, Chrome-Startdatei, Anleitung, die API-Adresse ist schon eingetragen) und gibt den Link für `NEXT_PUBLIC_HELPER_DOWNLOAD_URL` aus. Nach Updates des Helfers erneut ausführen.
+2. Kunde: Dashboard → **Accounts → PC-Helfer herunterladen**, ZIP entpacken, **„Chrome fuer Vinted starten.bat“** öffnen und bei Vinted einloggen, **„PC-Helfer starten.cmd“** doppelklicken, Schlüssel eingeben (**Neuen Schlüssel erzeugen**).
+3. Im Dashboard auf der Account-Karte **„Mit PC-Helfer verbinden“** klicken.
+4. **Mehrere Vinted-Accounts:** Im Account-Formular pro weiterem Account einen eigenen **Chrome-Port** eintragen (9223, 9224 …). Auf der Account-Karte gibt es dann „Chrome für diesen Account“ – eine Startdatei für ein eigenes Chrome-Profil. So bleiben alle Accounts gleichzeitig eingeloggt.
 
 ## 4. Checkliste: was du selbst erledigen musst
 
@@ -110,7 +117,10 @@ Plane etwa 1–2 Stunden ein. Zuerst alles im **Testmodus** (Stripe `sk_test_…
 - [ ] Stripe: PayPal aktivieren, `npm run stripe:setup …` ausführen, `STRIPE_PRICE_ID` + `STRIPE_WEBHOOK_SECRET` in Railway eintragen
 - [ ] Vercel-Projekt mit Root Directory `apps/web`, Variablen eintragen, deployen
 - [ ] Den ganzen Ablauf im Testmodus durchklicken (Abschnitt 5)
-- [ ] **Rechtstexte** eintragen: `apps/web/app/impressum`, `datenschutz`, `agb` (aktuell Platzhalter). Für ein kostenpflichtiges Angebot in Deutschland sind Impressum, Datenschutzerklärung (mit Supabase, Clerk, Stripe, Vercel, Railway, Anthropic als Auftragsverarbeiter), AGB und Widerrufsbelehrung nötig. Lass die Texte von einer Fachperson bzw. einem Generator erstellen und prüfen.
+- [ ] **Betreiberangaben** in Vercel eintragen (`NEXT_PUBLIC_LEGAL_*`) – bis dahin zeigen Impressum, Datenschutz, AGB und Widerruf einen roten Hinweis.
+- [ ] **Rechtstexte prüfen lassen:** Impressum, Datenschutzerklärung, AGB, Widerrufsbelehrung und „Verträge hier kündigen“ sind fertig eingebaut (`apps/web/app/…`), aber von mir geschrieben, nicht von einer Anwältin oder einem Anwalt. Vor dem Start von einer Fachperson oder einem Rechtstext-Dienst (z. B. IT-Recht Kanzlei, Händlerbund, eRecht24) prüfen lassen. Wer die AGB ändert, erhöht `LEGAL.version` in `apps/web/lib/legal.ts` (wird mit jeder Zustimmung gespeichert).
+- [ ] E-Mail-Versand einrichten (Resend), damit Kündigungen per E-Mail bestätigt werden (§ 312k BGB verlangt eine Bestätigung in Textform).
+- [ ] PC-Helfer-Paket bauen und hochladen (Abschnitt H). Tipp: Mit einem Code-Signing-Zertifikat signiert, zeigt Windows beim ersten Start keine SmartScreen-Warnung.
 - [ ] Auftragsverarbeitungsverträge (AVV/DPA) mit den Anbietern abschließen (meist im jeweiligen Dashboard)
 - [ ] Preis festlegen: Produkt in Stripe (Live) mit echtem Betrag anlegen, `NEXT_PUBLIC_PRICE_LABEL` anpassen
 - [ ] **Stripe live schalten**: Konto verifizieren, `stripe:setup` mit `sk_live_…` erneut ausführen, Live-Schlüssel/Preis/Webhook-Secret in Railway eintragen
@@ -121,7 +131,7 @@ Plane etwa 1–2 Stunden ein. Zuerst alles im **Testmodus** (Stripe `sk_test_…
 ## 5. Test: einmal alles durchklicken (Testmodus)
 
 1. **Registrierung:** Landingpage öffnen → „Jetzt registrieren“ → mit E-Mail registrieren → du landest auf **/abo** („Kein Abo“). Andere Menüpunkte sind gesperrt, `/dashboard` leitet auf `/abo` um.
-2. **Abo abschließen:** „Abo abschließen“ → Stripe-Checkout (Karte und PayPal werden angeboten).
+2. **Abo abschließen:** Die beiden Häkchen (AGB/Datenschutz, sofortiger Leistungsbeginn) setzen – vorher ist der Knopf gesperrt – → „Abo abschließen“ → Stripe-Checkout (Karte und PayPal werden angeboten).
    - Testkarte `4242 4242 4242 4242`, beliebiges künftiges Ablaufdatum, beliebige Prüfnummer, beliebige PLZ.
    - PayPal im Testmodus: PayPal wählen → auf der Stripe-Testseite „Authorize“.
    Zurück auf `/abo?status=success`, Status **Aktiv** (nach 1–2 Sekunden, ggf. „Aktualisieren“).
@@ -131,19 +141,22 @@ Plane etwa 1–2 Stunden ein. Zuerst alles im **Testmodus** (Stripe `sk_test_…
 6. **Kündigung:** `/abo` → „Abo verwalten / kündigen“ → im Kundenportal kündigen. Standard: Zugang bis zum Ende des bezahlten Zeitraums („Zugang bis …“).
    Um die Sperre sofort zu testen: im Stripe-Dashboard (Testmodus) → Kunden → Abo → **Abo sofort kündigen**.
 7. **Zugriff gesperrt:** Seite neu laden → Status „Gekündigt / abgelaufen“, alle Menüpunkte außer „Abo“ gesperrt, die API antwortet mit 402. Der PC-Helfer meldet „Kein aktives Abo“. Die Daten bleiben erhalten; ein neues Abo schaltet alles wieder frei.
-8. **Zahlung fehlgeschlagen** (optional): im Stripe-Dashboard eine Rechnung mit Testkarte `4000 0000 0000 0341` scheitern lassen → Status „Zahlung offen“, Zugang bleibt, bis Stripe das Abo beendet.
+8. **Kündigungsbutton:** ohne Anmeldung `/kuendigen` öffnen → „Verträge hier kündigen“ → Name + E-Mail → „Jetzt kündigen“. Bestätigung mit Eingangszeit erscheint, E-Mail kommt an (mit Resend), in Stripe steht das Abo auf „kündigt zum Periodenende“.
+9. **Meine Daten:** `/abo` → „Alle Daten herunterladen“ (ZIP mit JSON und Fotos). Mit einem Testkonto „Konto endgültig löschen“ → Abo sofort beendet, Daten, Fotos und Clerk-Login weg.
+10. **Zahlung fehlgeschlagen** (optional): im Stripe-Dashboard eine Rechnung mit Testkarte `4000 0000 0000 0341` scheitern lassen → Status „Zahlung offen“, Zugang bleibt, bis Stripe das Abo beendet.
 
 Automatische Tests (ohne echte Konten, mit nachgebautem Stripe/Clerk/Vinted und echtem Postgres in PGlite):
 ```bash
 npm test                       # alles mit der lokalen SQLite-Datenbank
-npm run test:postgres -w apps/api   # dieselben Tests gegen Postgres mit Row Level Security
+npm run test:postgres -w apps/api   # dieselben Tests gegen Postgres (PGlite im Speicher) mit Row Level Security
+TEST_PG_URL=postgres://user:pass@host/db npm run test:pgserver -w apps/api   # gegen einen echten Postgres-Server
 ```
-`test/cloud.test.ts` spielt Schritte 1–7 automatisch durch, `test/helper.test.ts` den PC-Helfer, `test/tenancy.test.ts` die Trennung der Nutzer.
+`test/cloud.test.ts` spielt Schritte 1–9 automatisch durch, `test/helper.test.ts` den PC-Helfer, `test/tenancy.test.ts` die Trennung der Nutzer, `test/cluster.test.ts` zwei API-Instanzen.
 
-## 6. Grenzen und nächste Schritte
+## 6. Grenzen
 
-- **PC-Helfer verteilen:** Aktuell braucht der Kunde Node.js und dieses Programm (`PC-Helfer starten.bat`). Für zahlende Kunden sollte der Helfer als einzelne `.exe` mit Installer ausgeliefert werden (z. B. Node Single Executable Application). Das ist der nächste sinnvolle Schritt.
-- **Mehrere Vinted-Accounts pro Kunde:** Der Helfer übernimmt den Login, der gerade im Vinted-Chrome aktiv ist. Wer sich dort abmeldet, macht den Login bei Vinted ungültig. Für mehrere Accounts je ein eigenes Chrome-Profil nutzen und nacheinander verbinden.
-- **Eine API-Instanz:** Die Helfer-Warteschlange liegt im Speicher. Für mehrere Instanzen müsste sie über Postgres LISTEN/NOTIFY oder Redis laufen.
-- **Live-Meldungen über Vercel:** Die Weiterleitung von `/api/events/stream` kann nach einiger Zeit getrennt werden. Der Browser verbindet sich dann automatisch neu.
-- **Datenlöschung (DSGVO):** Konto löschen ist noch nicht eingebaut. Lösch-Anfragen bis dahin von Hand erledigen: Zeilen des Nutzers in Supabase und seinen Foto-Ordner löschen, Nutzer in Clerk löschen.
+- **Vinted-Nutzungsbedingungen:** Ein kostenpflichtiges Tool, das Vinted-Konten automatisiert, verstößt sehr wahrscheinlich dagegen. Die AGB schließen deine Haftung für Sperren durch Vinted ein Stück weit aus, das Risiko für dich und deine Kunden bleibt aber.
+- **Rechtstexte** sind ein sorgfältiger Entwurf, keine Rechtsberatung – vor dem Start prüfen lassen (Checkliste).
+- **KI-Kosten** laufen über deinen Anthropic-Schlüssel; plane sie im Abo-Preis ein.
+- **Kündigung per E-Mail-Bestätigung** braucht Resend (oder einen anderen Versand); ohne wird die Kündigung trotzdem gespeichert und in Stripe ausgeführt, aber nicht per E-Mail bestätigt.
+- **PC-Helfer** gibt es als Windows-Paket; für macOS müsste ein eigenes Paket gebaut werden (der Helfer selbst läuft dort mit `npm run helper -w apps/api`).

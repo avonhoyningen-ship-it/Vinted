@@ -10,6 +10,7 @@ interface HelperInfo {
 }
 
 const API_ADDRESS = process.env.NEXT_PUBLIC_DIRECT_API_URL || "(Adresse der Dashboard-API)";
+const DOWNLOAD = process.env.NEXT_PUBLIC_HELPER_DOWNLOAD_URL || null;
 
 /** Cloud: pairing the PC helper that talks to Vinted from the seller's own PC. */
 export function HelperCard({ onChange }: { onChange?: () => void }) {
@@ -50,8 +51,17 @@ export function HelperCard({ onChange }: { onChange?: () => void }) {
         Vinted-Formular in deinem Chrome ausfüllen. Deine Vinted-Anmeldung bleibt dabei auf deinem PC – das Dashboard speichert sie nicht.
       </div>
       <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
+        {DOWNLOAD && (
+          <li>
+            <a className="btn small primary" href={DOWNLOAD}>PC-Helfer für Windows herunterladen</a>{" "}
+            – ZIP entpacken, keine Installation nötig.
+          </li>
+        )}
         <li>„Chrome fuer Vinted starten.bat“ öffnen und dort bei Vinted einloggen.</li>
-        <li>„PC-Helfer starten.bat“ öffnen. Beim ersten Start fragt er nach der Adresse <code>{API_ADDRESS}</code> und einem Schlüssel:</li>
+        <li>
+          „PC-Helfer starten.{DOWNLOAD ? "cmd" : "bat"}“ öffnen. Beim ersten Start fragt er nach einem Schlüssel
+          {DOWNLOAD ? "" : <> und der Adresse <code>{API_ADDRESS}</code></>}:
+        </li>
       </ol>
       {newKey ? (
         <div className="alert info stack" style={{ gap: 6 }}>

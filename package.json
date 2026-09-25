@@ -12,7 +12,8 @@
     "start": "concurrently -n api,web \"npm run start -w apps/api\" \"npm run start -w apps/web\"",
     "test": "npm run test -w apps/api",
     "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "helper:package": "node scripts/package-helper.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.4"

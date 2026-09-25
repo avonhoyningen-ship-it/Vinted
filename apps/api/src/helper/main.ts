@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 import type { LoginStore, StoredLogin } from "./runtime.js";
 
 const DIR = process.env.ASK_HELPER_DIR || path.join(os.homedir(), ".ask-helper");
@@ -27,10 +28,20 @@ function arg(name: string) {
   return i > 0 ? process.argv[i + 1] : undefined;
 }
 
+/** The downloaded helper package ships the dashboard address next to the program. */
+function presetApiUrl(): string | undefined {
+  try {
+    const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "default-config.json");
+    return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf8")) as { apiUrl?: string }).apiUrl : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function loadConfig(): Promise<Config> {
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 });
   let cfg: Partial<Config> = fs.existsSync(CONFIG) ? JSON.parse(fs.readFileSync(CONFIG, "utf8")) : {};
-  const url = arg("--url") ?? process.env.ASK_API_URL;
+  const url = arg("--url") ?? process.env.ASK_API_URL ?? (cfg.apiUrl ? undefined : presetApiUrl());
   const key = arg("--key");
   if (url) cfg.apiUrl = url;
   if (key) cfg.token = key;

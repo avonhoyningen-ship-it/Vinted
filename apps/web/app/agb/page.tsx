@@ -55,7 +55,7 @@ export default function Agb() {
       <h2>§ 5 Preise und Zahlung</h2>
       <p>
         Es gilt der bei der Bestellung angezeigte Monatspreis. Der Preis ist monatlich im Voraus fällig und wird über Stripe per Karte oder
-        PayPal eingezogen. {LEGAL.vatId ? "Die Preise enthalten die gesetzliche Umsatzsteuer." : "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."}
+        PayPal eingezogen. {LEGAL.vatId ? "Die Preise enthalten die gesetzliche Umsatzsteuer." : "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."}{" "}
         Schlägt eine Zahlung fehl, versucht Stripe den Einzug erneut; bleibt die Zahlung aus, endet der Zugang zu den Funktionen.
       </p>
       <p>
