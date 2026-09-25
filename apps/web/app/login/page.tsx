@@ -17,7 +17,7 @@ function LoginForm() {
       await api("/auth/login", { method: "POST", json: { password } });
       const next = params.get("next");
       // Full navigation so every page starts with the fresh session cookie.
-      window.location.href = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+      window.location.href = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

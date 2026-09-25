@@ -1,3 +1,5 @@
+import { CLOUD } from "./mode";
+
 /**
  * By default the browser talks to the API on the same origin (/api/...):
  * Next.js rewrites it to the API in development, Caddy routes it in
@@ -11,6 +13,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Cloud: big uploads go straight to the API server (NEXT_PUBLIC_DIRECT_API_URL,
+ * e.g. the Railway URL) instead of through the Vercel rewrite, which limits
+ * request bodies. Everything else stays same-origin.
+ */
+const DIRECT_API_URL = (process.env.NEXT_PUBLIC_DIRECT_API_URL || "").replace(/\/$/, "");
+
+async function clerkToken(): Promise<string | null> {
+  const { getToken } = await import("@clerk/nextjs");
+  return getToken().catch(() => null);
+}
+
 export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
   const headers = new Headers(init.headers);
   let body = init.body;
@@ -18,9 +32,20 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
     headers.set("content-type", "application/json");
     body = JSON.stringify(init.json);
   }
-  const res = await fetch(`${API_URL}/api${path}`, { ...init, headers, body, credentials: "include" });
-  if (res.status === 401 && !path.startsWith("/auth/") && typeof window !== "undefined" && window.location.pathname !== "/login") {
-    window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  let base = API_URL;
+  if (CLOUD && typeof window !== "undefined") {
+    const token = await clerkToken();
+    if (token) headers.set("authorization", `Bearer ${token}`);
+    if (body instanceof FormData && DIRECT_API_URL) base = DIRECT_API_URL;
+  }
+  const res = await fetch(`${base}/api${path}`, { ...init, headers, body, credentials: "include" });
+  if (typeof window !== "undefined") {
+    const here = window.location.pathname + window.location.search;
+    if (res.status === 401 && CLOUD) window.location.href = `/sign-in?redirect_url=${encodeURIComponent(here)}`;
+    else if (res.status === 401 && !path.startsWith("/auth/") && window.location.pathname !== "/login") {
+      window.location.href = `/login?next=${encodeURIComponent(here)}`;
+    }
+    if (res.status === 402 && CLOUD && window.location.pathname !== "/abo") window.location.href = "/abo";
   }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));

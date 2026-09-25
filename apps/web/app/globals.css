@@ -75,6 +75,7 @@ h3 { font-size: 14px; margin: 0 0 8px; }
 .nav-link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--text-2); font-weight: 500; }
 .nav-link:hover { background: var(--surface-2); text-decoration: none; color: var(--text); }
 .nav-link.active { background: var(--accent-soft); color: var(--accent); }
+.nav-link.disabled { opacity: 0.45; cursor: not-allowed; }
 .sidebar-foot { margin-top: auto; padding: 10px; font-size: 12px; color: var(--text-3); display: flex; flex-direction: column; gap: 4px; }
 .main { padding: 24px 28px 48px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -186,3 +187,22 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .login-card { width: min(360px, 100%); }
 .main { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
 .photo .rot { position: absolute; bottom: 4px; right: 4px; border: 0; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; background: rgb(0 0 0 / 0.6); color: #fff; font-size: 14px; line-height: 1; }
+
+/* ---- cloud: landing, sign-in, subscription ---- */
+.btn.big { padding: 11px 20px; font-size: 15px; }
+.price { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.auth-page { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.landing { min-height: 100vh; }
+.landing-inner { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
+.landing-nav { display: flex; align-items: center; gap: 8px; padding: 12px 16px; max-width: 1100px; margin: 0 auto; }
+.landing-nav .brand { padding: 0; display: flex; } /* also on phones (the sidebar rule hides .brand) */
+.landing-hero { text-align: center; max-width: 760px; margin: 0 auto; padding: 56px 16px 32px; display: flex; flex-direction: column; gap: 16px; }
+.landing-hero h1 { font-size: clamp(28px, 6vw, 44px); line-height: 1.15; letter-spacing: -0.01em; }
+.landing-hero p { font-size: 17px; margin: 0; }
+.landing-features { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); max-width: 1100px; margin: 0 auto; padding: 16px; }
+.landing-steps { max-width: 760px; margin: 0 auto; padding: 32px 16px 8px; }
+.landing-steps ol { padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+.landing-price { display: grid; place-items: center; padding: 32px 16px; }
+.price-card { width: min(420px, 100%); }
+.price-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.landing-foot { text-align: center; padding: 32px 16px 48px; border-top: 1px solid var(--border); margin-top: 32px; }

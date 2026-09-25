@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
+import { deDE } from "@clerk/localizations";
 import { AuthGate } from "@/components/AuthGate";
+import { CLOUD } from "@/lib/mode";
 import { ToastProvider } from "@/components/Toasts";
 import "./globals.css";
 
@@ -19,7 +22,7 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
+  const page = (
     <html lang="de">
       <body>
         <ToastProvider>
@@ -28,4 +31,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </body>
     </html>
   );
+  // Cloud: Clerk handles sign-up, sign-in, password reset and sessions.
+  return CLOUD ? <ClerkProvider localization={deDE} signInUrl="/sign-in" signUpUrl="/sign-up">{page}</ClerkProvider> : page;
 }
