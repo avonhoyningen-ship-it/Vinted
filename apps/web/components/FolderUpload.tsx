@@ -9,6 +9,7 @@ const byName = (a: File, b: File) => a.name.localeCompare(b.name, "de", { numeri
 
 interface Group { key: string; files: File[]; measurements: string; hint: string }
 type Mode = "perFolder" | "grouped";
+type Rotation = 0 | 90 | 180 | 270;
 
 interface PickedFile { file: File; path: string }
 
@@ -41,6 +42,16 @@ async function filesFromDrop(dt: DataTransfer): Promise<PickedFile[]> {
 
 let keySeq = 0;
 const newKey = () => `g${++keySeq}`;
+
+/** Shows a thumbnail rotated inside its 72×90 box (swapping sides for 90°/270°). */
+function rotatedStyle(deg: Rotation): React.CSSProperties {
+  if (!deg) return {};
+  const side = deg % 180 !== 0;
+  return {
+    position: "absolute", top: "50%", left: "50%", width: side ? 90 : 72, height: side ? 72 : 90,
+    transform: `translate(-50%, -50%) rotate(${deg}deg)`,
+  };
+}
 
 /** Small JPEG preview for the AI grouping step (keeps the upload light). */
 async function thumbnail(f: File): Promise<Blob> {
@@ -76,6 +87,9 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const [hints, setHints] = useState("");
   const [useAi, setUseAi] = useState(true);
   const [progress, setProgress] = useState<string | null>(null);
+  // Clockwise rotation per photo: from the AI check, adjustable by click.
+  const [rot, setRot] = useState<Map<File, Rotation>>(new Map());
+  const turn = (f: File) => setRot(new Map(rot).set(f, (((rot.get(f) ?? 0) + 90) % 360) as Rotation));
   const [results, setResults] = useState<{ key: string; label: string; ok: boolean; text: string }[]>([]);
 
   const allFiles = useMemo(() => [...folders.values()].flat(), [folders]);
@@ -95,6 +109,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
     const sorted = new Map([...map].sort(([a], [b]) => a.localeCompare(b, "de", { numeric: true })));
     setFolders(sorted);
     setResults([]);
+    setRot(new Map());
     // A single folder's name holds the measurements that apply to all its articles.
     setFolderMeasurements(sorted.size === 1 ? cleanName([...sorted.keys()][0]!) : "");
     // One folder with many photos → most likely several articles in one folder.
@@ -123,8 +138,9 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
         if (i % 20 === 0) setProgress(`Bereite Fotos vor… ${i} / ${files.length}`);
         fd.append("photos", await thumbnail(f), f.name);
       }
-      setProgress(`KI ordnet ${files.length} Fotos den Kleidungsstücken zu…`);
-      const r = await api<{ groups: number[][] }>("/listings/group-photos", { method: "POST", body: fd });
+      setProgress(`KI ordnet ${files.length} Fotos den Kleidungsstücken zu und dreht sie richtig herum…`);
+      const r = await api<{ groups: number[][]; rotations: Rotation[] }>("/listings/group-photos", { method: "POST", body: fd });
+      setRot(new Map(files.map((f, i) => [f, r.rotations[i] ?? 0])));
       setGroups(r.groups.map((idx) => ({ key: newKey(), files: idx.map((i) => files[i]!), measurements: "", hint: "" })));
     } catch (e) {
       toast({ kind: "error", text: (e as Error).message });
@@ -148,7 +164,10 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
       const label = g.measurements || `Artikel ${i + 1}`;
       setProgress(`Artikel ${i + 1} von ${groups.length} ${useAi && aiEnabled ? "– KI dreht Fotos und schreibt die Beschreibung…" : "wird angelegt…"}`);
       const fd = new FormData();
-      g.files.slice(0, MAX_PHOTOS).forEach((f) => fd.append("photos", f, f.name));
+      const sent = g.files.slice(0, MAX_PHOTOS);
+      sent.forEach((f) => fd.append("photos", f, f.name));
+      // Rotations checked in the preview: the server applies them and skips its own check.
+      if (sent.some((f) => rot.has(f))) fd.append("rotations", JSON.stringify(sent.map((f) => rot.get(f) ?? 0)));
       const data = { ...(measurements ? { measurements } : {}), ...(folderSize.trim() ? { size: folderSize.trim() } : {}) };
       if (Object.keys(data).length) fd.append("data", JSON.stringify(data));
       const hint = [folderSize.trim() && `Größe: ${folderSize.trim()}`, hints, g.hint].filter((h) => h && h.trim()).join(". ");
@@ -247,7 +266,8 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
                   {g.files.map((f, p) => (
                     <div className="photo" key={`${p}-${f.name}`} style={{ width: 72, height: 90 }} title={f.name}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={urls.get(f)} alt={f.name} loading="lazy" />
+                      <img src={urls.get(f)} alt={f.name} loading="lazy" style={rotatedStyle(rot.get(f) ?? 0)} />
+                      <button className="rot" onClick={() => turn(f)} title="Foto um 90° drehen" aria-label="Foto drehen">↻</button>
                       {p > 0 && <button className="x" onClick={() => splitAt(i, p)} title="Ab hier neuer Artikel" aria-label="Ab hier neuer Artikel">✂</button>}
                     </div>
                   ))}

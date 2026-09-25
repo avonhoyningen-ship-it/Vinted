@@ -40,7 +40,7 @@ export const aiEnabled = () => !!env.anthropicApiKey;
 /** Fixed technical rules appended to the (user-editable) style prompt. */
 const TECHNICAL_RULES = `
 Technische Vorgaben (immer einhalten):
-- Die Fotos sind nummeriert (Foto 1, Foto 2, …). Gib für jedes Foto unter "rotations" an, um wie viel Grad es im Uhrzeigersinn gedreht werden muss, damit Kleidung/Etiketten aufrecht und lesbar sind (0, 90, 180 oder 270). Achte besonders auf Fotos, die auf dem Kopf stehen (180) oder seitlich liegen (90/270): Kragen/Bund oben, Schrift auf Etiketten lesbar.
+- Die Fotos sind nummeriert (Foto 1, Foto 2, …) und bereits richtig gedreht.
 - Gib unter "photo_order" alle Fotonummern in dieser Reihenfolge an (innerhalb jeder Stufe die ursprüngliche Reihenfolge beibehalten):
   1. Gesamtbild/Outfit-Foto mit Deko oder Accessoires, die darauf liegen (z. B. Kabelkopfhörer, Sonnenbrille, Handy)
   2. Foto nur vom Kleidungsstück bzw. Artikel selbst, ohne Deko
@@ -64,7 +64,7 @@ async function modelImage(p: PhotoRow): Promise<Anthropic.ImageBlockParam> {
   return { type: "image", source: { type: "base64", media_type: "image/jpeg", data: buf.toString("base64") } };
 }
 
-/** Generates the sales kit (title, bullets, hashtags, …) and per-photo rotations from up to 20 photos. */
+/** Generates the sales kit (title, bullets, hashtags, photo order, …) from up to 20 photos. */
 export async function generateListing(photos: PhotoRow[], opts: GenerateOptions): Promise<ListingSuggestion> {
   if (!photos.length) throw new HttpError(400, "Mindestens ein Foto erforderlich");
   const content: Anthropic.ContentBlockParam[] = [];
@@ -169,4 +169,70 @@ export async function groupPhotosInOrder(images: Buffer[]): Promise<number[][]> 
 /** Normalises any uploaded image into a small JPEG for grouping. */
 export async function groupingThumb(input: Buffer): Promise<Buffer> {
   return sharp(input).rotate().resize({ width: 512, height: 512, fit: "inside" }).jpeg({ quality: 70 }).toBuffer();
+}
+
+// ---------- orientation ----------
+
+export type Rotation = 0 | 90 | 180 | 270;
+const VARIANTS: { label: string; deg: Rotation }[] = [
+  { label: "A", deg: 0 }, { label: "B", deg: 90 }, { label: "C", deg: 180 }, { label: "D", deg: 270 },
+];
+
+const OrientationAnswer = z.object({
+  photos: z.array(z.object({
+    photo: z.number().int(),
+    upright: z.enum(["A", "B", "C", "D"]).describe("Die Variante, in der das Foto richtig herum steht"),
+  })),
+});
+
+const ORIENTATION_SYSTEM = `Du prüfst die Ausrichtung von Produktfotos (Kleidung, Accessoires) für Vinted.
+Jedes Foto wird dir in 4 Varianten gezeigt (A, B, C, D = um 0°, 90°, 180°, 270° gedreht). Wähle pro Foto die Variante, die richtig herum steht:
+- Schrift (Prints, Etiketten, Tags) ist normal lesbar, nicht kopfüber und nicht seitlich.
+- Bei Shirts/Pullovern/Jacken: Kragen bzw. Ausschnitt oben, Saum unten. Bei Hosen: Bund oben.
+- Personen und Gesichter auf Prints stehen aufrecht.
+- Bei flach fotografierten Teilen zählt die Ausrichtung des Kleidungsstücks, nicht der Untergrund.`;
+
+const ORIENT_BATCH = 5;
+
+async function variants(img: Buffer): Promise<Buffer[]> {
+  const base = sharp(img).rotate().resize({ width: 384, height: 384, fit: "inside" });
+  const small = await base.jpeg({ quality: 75 }).toBuffer();
+  return Promise.all(VARIANTS.map((v) => (v.deg ? sharp(small).rotate(v.deg).jpeg({ quality: 75 }).toBuffer() : small)));
+}
+
+/** For each image: clockwise rotation (0/90/180/270) that makes it upright. */
+export async function detectOrientations(images: Buffer[]): Promise<Rotation[]> {
+  const result: Rotation[] = images.map(() => 0);
+  const batches: number[][] = [];
+  for (let i = 0; i < images.length; i += ORIENT_BATCH) batches.push(images.slice(i, i + ORIENT_BATCH).map((_, j) => i + j));
+
+  const runBatch = async (idx: number[]) => {
+    const content: Anthropic.ContentBlockParam[] = [];
+    for (const [k, i] of idx.entries()) {
+      const vs = await variants(images[i]!);
+      vs.forEach((buf, v) => {
+        content.push({ type: "text", text: `Foto ${k + 1} – Variante ${VARIANTS[v]!.label}:` },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: buf.toString("base64") } });
+      });
+    }
+    content.push({ type: "text", text: `Welche Variante steht bei Foto 1 bis ${idx.length} jeweils richtig herum?` });
+    const r = await getClient().messages.parse({
+      model: env.anthropicModel,
+      max_tokens: 4000,
+      system: ORIENTATION_SYSTEM,
+      messages: [{ role: "user", content }],
+      output_config: { format: zodOutputFormat(OrientationAnswer) },
+    });
+    for (const a of r.parsed_output?.photos ?? []) {
+      const i = idx[a.photo - 1];
+      if (i !== undefined) result[i] = VARIANTS.find((v) => v.label === a.upright)!.deg;
+    }
+  };
+
+  // A few requests in parallel keeps large folders fast without flooding the API.
+  const queue = [...batches];
+  await Promise.all(Array.from({ length: Math.min(3, queue.length) }, async () => {
+    for (let b = queue.shift(); b; b = queue.shift()) await runBatch(b);
+  }));
+  return result;
 }

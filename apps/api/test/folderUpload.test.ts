@@ -8,13 +8,14 @@ vi.mock("../src/modules/listings/ai.js", async (orig) => {
   return {
     ...real,
     aiEnabled: () => true,
+    // IMG_2 lies on its side, IMG_10 is upright.
+    detectOrientations: vi.fn(async (imgs: Buffer[]) => imgs.map((_, i) => (i === 0 ? 90 : 0))),
     generateListing: vi.fn(async (_photos: unknown, opts: { measurements?: string | null; hints?: string }) => ({
       title: "Carhartt Detroit Jacket Y2K Vintage Archive Workwear Gr. L",
       bullets: ["- 🧥 Carhartt Detroit Jacket", `📏 Maße: ${opts.measurements}`, "- 📦 Ich versende fix – stell gerne Fragen", "- ⚖️ Privatverkauf – keine Garantie, Gewährleistung oder Rücknahme"],
       hashtags: ["#japanstyle", "Y2K", "#vintage", "#y2k", "#older brother core"],
       category: "Herren > Jacken", brand: "Carhartt", size: "L", condition: "very_good", color: "Braun", material: "Canvas",
       suggested_price_eur: 39, price_reasoning: "gefragt", confidence_notes: "",
-      rotations: [{ photo: 1, degrees: 90 }, { photo: 2, degrees: 180 }],
       photo_order: [2, 1],
     })),
   };

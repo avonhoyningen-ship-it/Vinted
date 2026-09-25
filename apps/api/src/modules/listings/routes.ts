@@ -4,9 +4,10 @@ import { db, nowIso } from "../../db/index.js";
 import { h, HttpError, idParam, notFound } from "../../lib/http.js";
 import { getSetting } from "../../lib/settings.js";
 import { upload, uploadThumbs } from "../../lib/upload.js";
-import { rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
+import { photoPath, rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
+import fs from "node:fs";
 import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
-import { aiEnabled, composeDescription, generateListing, groupingThumb, groupPhotosInOrder, normalizeOrder, type ListingSuggestion } from "./ai.js";
+import { aiEnabled, composeDescription, detectOrientations, generateListing, groupingThumb, groupPhotosInOrder, normalizeOrder, type Rotation } from "./ai.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
 export const listingsRouter = Router();
@@ -45,9 +46,15 @@ listingsRouter.post("/drafts", upload.array("photos", 20), h(async (req, res) =>
   const data = req.body.data ? itemInput.partial().parse(JSON.parse(req.body.data)) : {};
   const measurements = data.measurements ?? measurementsFromFolder(req.body.folder);
   // Photos are sorted by file name so the order matches the folder.
-  const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, "de", { numeric: true }));
+  // Optional `rotations` (JSON, same order as the upload): already decided/checked in the preview.
+  const rotations = req.body.rotations ? z.array(z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)])).parse(JSON.parse(req.body.rotations)) : null;
+  const ordered = rotations ? files.map((f, i) => ({ f, rot: rotations[i] ?? 0 }))
+    : [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, "de", { numeric: true })).map((f) => ({ f, rot: 0 as Rotation }));
   const stored = [];
-  for (const f of sorted) stored.push({ photo: await storePhoto(f.buffer), name: f.originalname });
+  for (const { f, rot } of ordered) {
+    const photo = await storePhoto(f.buffer);
+    stored.push({ photo: rot ? await rotateStoredPhoto(photo.fileName, rot) : photo, name: f.originalname });
+  }
   const item = createItem({ ...data, measurements, title: data.title || measurements || "Neuer Artikel" });
   for (const s of stored) addPhoto(item.id, s.photo, s.name);
 
@@ -55,7 +62,7 @@ listingsRouter.post("/drafts", upload.array("photos", 20), h(async (req, res) =>
   let aiError: string | null = null;
   if (req.body.ai === "true" && aiEnabled()) {
     try {
-      suggestion = await runAi(item.id, req.body.hints, data);
+      suggestion = await runAi(item.id, req.body.hints, data, true, !rotations);
     } catch (e) {
       aiError = (e as Error).message;
     }
@@ -64,13 +71,13 @@ listingsRouter.post("/drafts", upload.array("photos", 20), h(async (req, res) =>
 }));
 
 /** Runs the sales-kit AI: rotates photos upright and (optionally) writes the texts into the item. */
-async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.infer<typeof itemInput>> = {}, apply = true) {
+async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.infer<typeof itemInput>> = {}, apply = true, orient = true) {
   const item = getItem(itemId);
+  if (orient) await orientPhotos(itemId);
   const photos = listPhotos(itemId);
   const s = await generateListing(photos, {
     hints, measurements: item.measurements, language: getSetting("ai.language"), stylePrompt: getSetting("ai.listingPrompt"),
   });
-  await applyRotations(photos, s);
   // Outfit shot → article only → details → tag (as decided by the model).
   const sent = photos.slice(0, 20);
   const order = normalizeOrder(s.photo_order ?? [], sent.length).map((i) => sent[i]!.id);
@@ -92,11 +99,12 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
   return { ...s, description };
 }
 
-async function applyRotations(photos: ReturnType<typeof listPhotos>, s: ListingSuggestion) {
-  for (const r of s.rotations) {
-    const photo = photos[r.photo - 1];
-    if (!photo || r.degrees === 0) continue;
-    replacePhotoFile(photo.id, await rotateStoredPhoto(photo.file_name, r.degrees));
+/** Turns every photo of an item upright (dedicated orientation check). */
+async function orientPhotos(itemId: number) {
+  const photos = listPhotos(itemId);
+  const degrees = await detectOrientations(photos.map((p) => fs.readFileSync(photoPath(p.file_name))));
+  for (const [i, deg] of degrees.entries()) {
+    if (deg) replacePhotoFile(photos[i]!.id, await rotateStoredPhoto(photos[i]!.file_name, deg));
   }
 }
 
@@ -117,7 +125,8 @@ listingsRouter.post("/group-photos", uploadThumbs.array("photos", 600), h(async 
       throw new HttpError(400, `Foto „${f.originalname}“ kann nicht gelesen werden (Format nicht unterstützt?)`);
     }
   }
-  res.json({ groups: await groupPhotosInOrder(thumbs) });
+  const [groups, rotations] = await Promise.all([groupPhotosInOrder(thumbs), detectOrientations(thumbs)]);
+  res.json({ groups, rotations });
 }));
 
 const aiInput = z.object({ apply: z.boolean().default(false), hints: z.string().max(1000).optional() });
