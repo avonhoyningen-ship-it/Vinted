@@ -49,7 +49,7 @@ accountsRouter.patch("/:id", h(async (req, res) => {
   const patch = accountPatch.parse(req.body);
   updateAccount(id, patch);
   let error: string | null = null;
-  if (patch.sessionToken) {
+  if (patch.sessionToken || patch.refreshToken) {
     try {
       await syncAccount(id);
     } catch (e) {

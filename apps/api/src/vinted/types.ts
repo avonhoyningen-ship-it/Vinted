@@ -4,6 +4,10 @@ export interface VintedSession {
   /** Country domain, e.g. "vinted.de". */
   domain: string;
   vintedUserId?: string | null;
+  /** Optional `refresh_token_web` cookie; lets the client pick up renewed access tokens. */
+  refreshToken?: string | null;
+  /** Called when Vinted hands out renewed tokens for the same user, so they can be stored. */
+  onTokens?: (accessToken: string, refreshToken: string | null) => void;
 }
 
 export interface VintedProfile {
@@ -12,7 +16,8 @@ export interface VintedProfile {
   followers: number;
   activeListings: number;
   totalSales: number;
-  unreadMessages: number;
+  /** null = could not be determined (keeps the previous value). */
+  unreadMessages: number | null;
 }
 
 export type RemoteListingStatus = "active" | "sold" | "hidden" | "removed";
@@ -100,7 +105,7 @@ export interface VintedAdapter {
 }
 
 export class VintedError extends Error {
-  constructor(message: string, public code: "auth" | "rate_limit" | "unsupported" | "network" | "remote" = "remote", public retryAfterMs?: number) {
+  constructor(message: string, public code: "auth" | "rate_limit" | "blocked" | "unsupported" | "network" | "remote" = "remote", public retryAfterMs?: number) {
     super(message);
   }
 }

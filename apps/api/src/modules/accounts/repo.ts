@@ -17,6 +17,7 @@ export interface AccountRow {
   username: string | null;
   vinted_user_id: string | null;
   session_encrypted: string | null;
+  refresh_encrypted: string | null;
   session_hint: string | null;
   status: "pending" | "connected" | "error" | "disconnected";
   last_error: string | null;
@@ -31,17 +32,20 @@ export interface AccountRow {
   updated_at: string;
 }
 
-export type PublicAccount = Omit<AccountRow, "session_encrypted" | "polling_enabled"> & { polling_enabled: boolean; has_session: boolean };
+export type PublicAccount = Omit<AccountRow, "session_encrypted" | "refresh_encrypted" | "polling_enabled"> & {
+  polling_enabled: boolean; has_session: boolean; has_refresh_token: boolean;
+};
 
 export function toPublic(a: AccountRow): PublicAccount {
-  const { session_encrypted, polling_enabled, ...rest } = a;
-  return { ...rest, polling_enabled: !!polling_enabled, has_session: !!session_encrypted };
+  const { session_encrypted, refresh_encrypted, polling_enabled, ...rest } = a;
+  return { ...rest, polling_enabled: !!polling_enabled, has_session: !!session_encrypted, has_refresh_token: !!refresh_encrypted };
 }
 
 export const accountInput = z.object({
   name: z.string().trim().min(1).max(80),
   domain: z.enum(VINTED_DOMAINS),
   sessionToken: z.string().trim().min(8).max(8192).optional(),
+  refreshToken: z.string().trim().min(8).max(8192).optional(),
   publishIntervalMinutes: z.number().int().min(5).max(24 * 60).nullable().optional(),
   pollingEnabled: z.boolean().optional(),
 });
@@ -59,11 +63,12 @@ export function getAccount(id: number): AccountRow {
 
 export function createAccount(input: z.infer<typeof accountInput>): AccountRow {
   const r = db.prepare(`
-    INSERT INTO accounts (name, domain, session_encrypted, session_hint, publish_interval_minutes, polling_enabled)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO accounts (name, domain, session_encrypted, refresh_encrypted, session_hint, publish_interval_minutes, polling_enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.name, input.domain,
     input.sessionToken ? encrypt(input.sessionToken) : null,
+    input.refreshToken ? encrypt(input.refreshToken) : null,
     input.sessionToken ? maskSecret(input.sessionToken) : null,
     input.publishIntervalMinutes ?? null,
     input.pollingEnabled === false ? 0 : 1,
@@ -75,13 +80,14 @@ export function updateAccount(id: number, patch: z.infer<typeof accountPatch>): 
   const a = getAccount(id);
   const tokenChanged = patch.sessionToken !== undefined;
   db.prepare(`
-    UPDATE accounts SET name = ?, domain = ?, session_encrypted = ?, session_hint = ?, publish_interval_minutes = ?,
+    UPDATE accounts SET name = ?, domain = ?, session_encrypted = ?, refresh_encrypted = ?, session_hint = ?, publish_interval_minutes = ?,
       polling_enabled = ?, status = ?, updated_at = ?
     WHERE id = ?
   `).run(
     patch.name ?? a.name,
     patch.domain ?? a.domain,
     tokenChanged ? encrypt(patch.sessionToken!) : a.session_encrypted,
+    patch.refreshToken !== undefined ? encrypt(patch.refreshToken) : tokenChanged ? null : a.refresh_encrypted,
     tokenChanged ? maskSecret(patch.sessionToken!) : a.session_hint,
     patch.publishIntervalMinutes !== undefined ? patch.publishIntervalMinutes : a.publish_interval_minutes,
     patch.pollingEnabled === undefined ? a.polling_enabled : patch.pollingEnabled ? 1 : 0,
@@ -95,7 +101,7 @@ export function updateAccount(id: number, patch: z.infer<typeof accountPatch>): 
 /** Removes the stored session. Listings, sales and archive data stay untouched. */
 export function disconnectAccount(id: number) {
   getAccount(id);
-  db.prepare("UPDATE accounts SET session_encrypted = NULL, session_hint = NULL, status = 'disconnected', updated_at = ? WHERE id = ?").run(nowIso(), id);
+  db.prepare("UPDATE accounts SET session_encrypted = NULL, refresh_encrypted = NULL, session_hint = NULL, status = 'disconnected', updated_at = ? WHERE id = ?").run(nowIso(), id);
   db.prepare("UPDATE publish_queue SET status = 'cancelled', updated_at = ? WHERE account_id = ? AND status = 'pending'").run(nowIso(), id);
   db.prepare("UPDATE scheduled_actions SET status = 'cancelled' WHERE account_id = ? AND status = 'pending'").run(id);
 }
@@ -115,7 +121,17 @@ export function deleteAccount(id: number) {
 
 export function sessionFor(a: AccountRow): VintedSession {
   if (!a.session_encrypted) throw new HttpError(400, `Account "${a.name}" hat keine gespeicherte Session`);
-  return { token: decrypt(a.session_encrypted), domain: a.domain, vintedUserId: a.vinted_user_id };
+  return {
+    token: decrypt(a.session_encrypted),
+    refreshToken: a.refresh_encrypted ? decrypt(a.refresh_encrypted) : null,
+    domain: a.domain,
+    vintedUserId: a.vinted_user_id,
+    // Vinted renewed the tokens (same user): store them encrypted.
+    onTokens: (access, refresh) => {
+      db.prepare("UPDATE accounts SET session_encrypted = ?, refresh_encrypted = COALESCE(?, refresh_encrypted), session_hint = ?, updated_at = ? WHERE id = ?")
+        .run(encrypt(access), refresh ? encrypt(refresh) : null, maskSecret(access), nowIso(), a.id);
+    },
+  };
 }
 
 export function setAccountStatus(id: number, status: AccountRow["status"], error: string | null) {

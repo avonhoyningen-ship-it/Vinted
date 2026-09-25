@@ -16,7 +16,7 @@ const LINKS = [
 
 export function Nav() {
   const path = usePathname();
-  const { data: info } = useApi<{ vintedMode: string; aiEnabled: boolean }>("/info");
+  const { data: info } = useApi<{ aiEnabled: boolean }>("/info");
   const { data: me } = useApi<{ authRequired: boolean }>("/auth/me");
   const logout = () => api("/auth/logout", { method: "POST" }).then(() => { window.location.href = "/login"; });
   return (
@@ -33,7 +33,6 @@ export function Nav() {
       <div className="sidebar-foot">
         {info ? (
           <>
-            <span>Modus: <strong>{info.vintedMode === "mock" ? "Simulation" : "Live"}</strong></span>
             <span>KI: {info.aiEnabled ? "aktiv" : "kein API-Key"}</span>
           </>
         ) : (

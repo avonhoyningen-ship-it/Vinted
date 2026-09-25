@@ -40,13 +40,11 @@ export const env = {
   encryptionKey: str("ENCRYPTION_KEY"),
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || null,
   anthropicModel: str("ANTHROPIC_MODEL", "claude-opus-5"),
-  vintedMode: str("VINTED_MODE", "mock") as "mock" | "live",
   /** Minimum 5 minutes: no aggressive polling. */
   pollIntervalMinutes: int("POLL_INTERVAL_MINUTES", 10, 5),
   /** Default gap between two queued publications on the same account. */
   publishIntervalMinutes: int("PUBLISH_INTERVAL_MINUTES", 30, 5),
   /** Minimum gap between two HTTP requests to Vinted per account. */
   vintedMinRequestGapMs: int("VINTED_MIN_REQUEST_GAP_MS", 4000, 1000),
-  mockRandomEvents: process.env.MOCK_RANDOM_EVENTS === "true",
   disableWorkers: process.env.DISABLE_WORKERS === "true",
 };

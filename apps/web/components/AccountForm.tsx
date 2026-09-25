@@ -12,6 +12,10 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
   const [name, setName] = useState(initial?.name ?? "");
   const [domain, setDomain] = useState(initial?.domain ?? "vinted.de");
   const [token, setToken] = useState("");
+  const [refresh, setRefresh] = useState("");
+  // After a failed first connect the account exists already – further saves update it.
+  const [created, setCreated] = useState<Account | null>(null);
+  const existing = initial ?? created;
   const [interval, setInterval] = useState(initial?.publish_interval_minutes?.toString() ?? "");
   const [polling, setPolling] = useState(initial?.polling_enabled ?? true);
   const [busy, setBusy] = useState(false);
@@ -24,13 +28,19 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
       const body = {
         name, domain, pollingEnabled: polling,
         publishIntervalMinutes: interval ? Number(interval) : null,
-        ...(token ? { sessionToken: token } : {}),
+        ...(token ? { sessionToken: token.trim() } : {}),
+        ...(refresh ? { refreshToken: refresh.trim() } : {}),
       };
-      const res = initial
-        ? await api<{ error: string | null }>(`/accounts/${initial.id}`, { method: "PATCH", json: body })
-        : await api<{ error: string | null }>("/accounts", { method: "POST", json: body });
-      if (res.error) toast({ kind: "error", text: `Gespeichert, aber Verbindung fehlgeschlagen: ${res.error}` });
-      else toast({ kind: "info", text: "Account gespeichert" });
+      const res = existing
+        ? await api<{ error: string | null; account: Account }>(`/accounts/${existing.id}`, { method: "PATCH", json: body })
+        : await api<{ error: string | null; account: Account }>("/accounts", { method: "POST", json: body });
+      if (res.error) {
+        if (!initial) setCreated(res.account);
+        // Keep the dialog open so the token can be corrected right away.
+        setError(`Verbindung fehlgeschlagen: ${res.error}`);
+        return;
+      }
+      toast({ kind: "info", text: `Verbunden als @${res.account.username} (${res.account.followers} Follower)` });
       onSaved();
     } catch (e) {
       setError((e as Error).message);
@@ -48,12 +58,17 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
           {(domains ?? ["vinted.de"]).map((d) => <option key={d}>{d}</option>)}
         </select>
       </label>
-      <label className="field">Session-Token {initial?.session_hint && <span className="muted">(gespeichert: {initial.session_hint} – leer lassen zum Behalten)</span>}
-        <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder="Wert des Cookies access_token_web" />
+      <label className="field">access_token_web {initial?.session_hint && <span className="muted">(gespeichert: {initial.session_hint} – leer lassen zum Behalten)</span>}
+        <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder="beginnt mit eyJ…" />
+      </label>
+      <label className="field">refresh_token_web (optional, empfohlen) {initial?.has_refresh_token && <span className="muted">(gespeichert)</span>}
+        <input type="password" value={refresh} onChange={(e) => setRefresh(e.target.value)} autoComplete="off" placeholder="beginnt mit eyJ…" />
       </label>
       <div className="small muted">
-        Es wird <strong>kein Passwort</strong> gespeichert. Das Token wird mit AES-256-GCM verschlüsselt abgelegt und nie wieder im Klartext angezeigt.
-        So findest du es: bei Vinted einloggen → Entwicklertools (F12) → Anwendung/Speicher → Cookies → <code>access_token_web</code>.
+        So findest du die Werte: bei <strong>{domain}</strong> im Browser einloggen → <kbd>F12</kbd> → Reiter „Anwendung“ (Chrome/Edge) bzw. „Speicher“ (Firefox)
+        → Cookies → <code>https://www.{domain}</code> → Wert von <code>access_token_web</code> und <code>refresh_token_web</code> kopieren.
+        Das access_token_web gilt nur ca. 24 Stunden; mit dem refresh_token_web kann das Dashboard die Verbindung erneuern.
+        Es wird <strong>kein Passwort</strong> gespeichert; beide Werte liegen AES-256-verschlüsselt in der Datenbank.
       </div>
       <div className="form-grid">
         <label className="field">Abstand zwischen Veröffentlichungen (Min.)<input type="number" min={5} value={interval} onChange={(e) => setInterval(e.target.value)} placeholder="Standard" /></label>
@@ -64,7 +79,7 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
       <div className="row">
         <div className="spacer" />
         <button className="btn" onClick={onCancel}>Abbrechen</button>
-        <button className="btn primary" disabled={busy || !name || (!initial && !token)} onClick={save}>{busy ? "Verbinde…" : "Speichern & verbinden"}</button>
+        <button className="btn primary" disabled={busy || !name || (!existing && !token)} onClick={save}>{busy ? "Verbinde mit Vinted…" : "Speichern & verbinden"}</button>
       </div>
     </div>
   );

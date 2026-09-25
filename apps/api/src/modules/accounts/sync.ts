@@ -16,6 +16,8 @@ export interface SyncResult {
   newFavourites: number;
   newMessages: number;
   initial: boolean;
+  /** Non-fatal problems (e.g. sales feed not readable); profile and listings were synced. */
+  warnings: string[];
 }
 
 const CONDITION_ALIASES: Record<string, (typeof CONDITIONS)[number]> = {
@@ -73,12 +75,12 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
   const session = sessionFor(account);
   const key = keyFor(account);
   const initial = !account.last_sync_at;
-  const result: SyncResult = { imported: 0, updated: 0, ended: 0, newSales: 0, newFavourites: 0, newMessages: 0, initial };
+  const result: SyncResult = { imported: 0, updated: 0, ended: 0, newSales: 0, newFavourites: 0, newMessages: 0, initial, warnings: [] };
 
   try {
     const profile = await vintedClient.verifySession(key, session);
     db.prepare(`UPDATE accounts SET username = ?, vinted_user_id = ?, followers = ?, active_listings = ?, total_sales = ?,
-      unread_messages = ?, status = 'connected', last_error = NULL, updated_at = ? WHERE id = ?`)
+      unread_messages = COALESCE(?, unread_messages), status = 'connected', last_error = NULL, updated_at = ? WHERE id = ?`)
       .run(profile.username, profile.userId, profile.followers, profile.activeListings, profile.totalSales, profile.unreadMessages, nowIso(), accountId);
     session.vintedUserId = profile.userId;
 
@@ -89,6 +91,8 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
       seen.add(r.vintedItemId);
       const local = listingByVintedId(accountId, r.vintedItemId);
       if (!local) {
+        // Only active listings are imported; sold/hidden ones we never saw are skipped.
+        if (r.status !== "active") continue;
         await importRemoteListing(account, r);
         result.imported++;
         continue;
@@ -110,8 +114,20 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
       }
     }
 
+    // Sales, favourites and messages are best-effort: profile and listings are
+    // already stored; a failing feed is reported as a warning, never faked.
+    const optional = async <T>(label: string, fn: () => Promise<T[]>): Promise<T[]> => {
+      try {
+        return await fn();
+      } catch (e) {
+        if (e instanceof VintedError && e.code === "auth") throw e;
+        result.warnings.push(`${label} konnten nicht abgerufen werden: ${(e as Error).message}`);
+        return [];
+      }
+    };
+
     // --- sales ---
-    for (const s of await vintedClient.fetchSales(key, session)) {
+    for (const s of await optional("Verkäufe", () => vintedClient.fetchSales(key, session))) {
       const listing = listingByVintedId(accountId, s.vintedItemId);
       const item = listing ? (db.prepare("SELECT category, brand FROM items WHERE id = ?").get(listing.item_id) as { category: string | null; brand: string | null }) : null;
       const ins = db.prepare(`INSERT OR IGNORE INTO sales (account_id, listing_id, item_id, external_id, title, price_cents, currency, buyer, category, brand, sold_at)
@@ -133,7 +149,7 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
     }
 
     // --- favourites ---
-    for (const f of await vintedClient.fetchFavourites(key, session)) {
+    for (const f of await optional("Favoriten", () => vintedClient.fetchFavourites(key, session))) {
       const listing = listingByVintedId(accountId, f.vintedItemId);
       const r = ingestEvent({
         accountId, type: "favourite", externalId: f.externalId, listingId: listing?.id ?? null, userId: f.userId, username: f.username,
@@ -146,7 +162,7 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
     }
 
     // --- messages ---
-    for (const m of await vintedClient.fetchMessages(key, session)) {
+    for (const m of await optional("Nachrichten", () => vintedClient.fetchMessages(key, session))) {
       const listing = listingByVintedId(accountId, m.vintedItemId);
       const r = ingestEvent({
         accountId, type: "message", externalId: m.externalId, listingId: listing?.id ?? null, userId: m.userId, username: m.username,
@@ -158,6 +174,7 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
       }
     }
 
+    if (result.warnings.length) console.warn(`[sync] Account ${accountId}:`, result.warnings.join(" | "));
     db.prepare("UPDATE accounts SET last_sync_at = ?, updated_at = ? WHERE id = ?").run(nowIso(), nowIso(), accountId);
     eventBus.publish({ type: "account_status", accountId, status: "connected" });
     return result;

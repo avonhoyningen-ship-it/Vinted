@@ -17,8 +17,9 @@ export default function AccountsPage() {
   async function sync(id: number) {
     setSyncing(id);
     try {
-      const r = await api<{ result: { imported: number; newSales: number; newFavourites: number; newMessages: number } }>(`/accounts/${id}/sync`, { method: "POST" });
+      const r = await api<{ result: { imported: number; newSales: number; newFavourites: number; newMessages: number; warnings: string[] } }>(`/accounts/${id}/sync`, { method: "POST" });
       toast({ kind: "info", text: `Synchronisiert: ${r.result.imported} importiert, ${r.result.newSales} neue Verkäufe, ${r.result.newFavourites} Favoriten, ${r.result.newMessages} Nachrichten` });
+      r.result.warnings.forEach((w) => toast({ kind: "error", text: w }));
     } catch (e) {
       toast({ kind: "error", text: (e as Error).message });
     } finally {
@@ -61,7 +62,7 @@ export default function AccountsPage() {
       </div>
       {adding && (
         <Modal title="Account verbinden" onClose={() => setAdding(false)}>
-          <AccountForm onSaved={() => { setAdding(false); void reload(); }} onCancel={() => setAdding(false)} />
+          <AccountForm onSaved={() => { setAdding(false); void reload(); }} onCancel={() => { setAdding(false); void reload(); }} />
         </Modal>
       )}
     </>

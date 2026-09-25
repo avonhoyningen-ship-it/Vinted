@@ -3,9 +3,56 @@
  * mostly mechanical change). Money is stored as integer cents, timestamps as
  * ISO-8601 UTC strings.
  */
+import type { DB } from "./index.js";
+
 const NOW = "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
 
-export const migrations: { id: number; name: string; sql: string }[] = [
+export interface Migration {
+  id: number;
+  name: string;
+  sql: string;
+  /** Optional data step, runs after `sql` in the same transaction. */
+  run?: (db: DB) => void;
+}
+
+/**
+ * Removes everything that came from the former built-in demo/mock mode:
+ * accounts with a "mock-…" Vinted id (e.g. @reseller_c9e3) and their seed
+ * listings (Levi's/Nike/Zara), sales, events and actions. Items the user
+ * created with own photos are kept; only their demo listings are removed.
+ */
+export function removeDemoData(db: DB) {
+  const ids = (db.prepare("SELECT id FROM accounts WHERE vinted_user_id LIKE 'mock-%'").all() as { id: number }[]).map((r) => Number(r.id));
+  if (!ids.length) return { accounts: 0, items: 0 };
+  const inList = ids.join(",");
+  const demoItems = (db.prepare(`
+    SELECT i.id FROM items i
+    WHERE EXISTS (SELECT 1 FROM listings l WHERE l.item_id = i.id AND l.account_id IN (${inList}))
+      AND NOT EXISTS (SELECT 1 FROM listings l WHERE l.item_id = i.id AND l.account_id NOT IN (${inList}))
+      AND NOT EXISTS (SELECT 1 FROM item_photos p WHERE p.item_id = i.id)
+  `).all() as { id: number }[]).map((r) => Number(r.id));
+  const touchedItems = (db.prepare(`SELECT DISTINCT item_id FROM listings WHERE account_id IN (${inList})`).all() as { item_id: number }[]).map((r) => Number(r.item_id));
+
+  db.exec(`
+    DELETE FROM scheduled_actions WHERE account_id IN (${inList});
+    DELETE FROM vinted_events WHERE account_id IN (${inList});
+    DELETE FROM sales WHERE account_id IN (${inList});
+    DELETE FROM publish_queue WHERE account_id IN (${inList});
+    DELETE FROM listing_price_changes WHERE listing_id IN (SELECT id FROM listings WHERE account_id IN (${inList}));
+    DELETE FROM listings WHERE account_id IN (${inList});
+    DELETE FROM automation_rules WHERE account_id IN (${inList});
+    DELETE FROM accounts WHERE id IN (${inList});
+  `);
+  if (demoItems.length) db.exec(`DELETE FROM items WHERE id IN (${demoItems.join(",")})`);
+  // Remaining user items that had demo listings: recompute their status from the real history.
+  for (const id of touchedItems.filter((i) => !demoItems.includes(i))) {
+    const left = db.prepare("SELECT COUNT(*) c FROM listings WHERE item_id = ?").get(id) as { c: number };
+    if (!Number(left.c)) db.prepare("UPDATE items SET status = 'draft' WHERE id = ? AND status <> 'archived'").run(id);
+  }
+  return { accounts: ids.length, items: demoItems.length };
+}
+
+export const migrations: Migration[] = [
   {
     id: 1,
     name: "init",
@@ -210,5 +257,14 @@ CREATE TABLE settings (
   value TEXT NOT NULL
 );
 `,
+  },
+  {
+    id: 2,
+    name: "real_vinted_client",
+    sql: `ALTER TABLE accounts ADD COLUMN refresh_encrypted TEXT;`,
+    run: (db) => {
+      const r = removeDemoData(db);
+      if (r.accounts) console.log(`[db] Demo-Daten entfernt: ${r.accounts} Demo-Account(s), ${r.items} Demo-Artikel`);
+    },
   },
 ];

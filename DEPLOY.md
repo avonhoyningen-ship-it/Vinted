@@ -60,7 +60,6 @@ Folgende Zeilen setzen (mit den Pfeiltasten navigieren, speichern mit `Strg+O`, 
 
 ```
 DOMAIN=dashboard.meine-domain.de
-VINTED_MODE=live
 ANTHROPIC_API_KEY=sk-ant-...          (optional, für KI-Inserate)
 DASHBOARD_PASSWORD=...                (optional: eigenes Passwort, mind. 10 Zeichen)
 ```

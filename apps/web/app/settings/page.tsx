@@ -11,7 +11,7 @@ interface Settings {
   "notifications.desktop": boolean; "notifications.confetti": boolean;
   "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string;
 }
-interface Info { vintedMode: string; aiEnabled: boolean; aiModel: string; pollIntervalMinutes: number; publishIntervalMinutes: number }
+interface Info { aiEnabled: boolean; aiModel: string; pollIntervalMinutes: number; publishIntervalMinutes: number }
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -79,7 +79,6 @@ export default function SettingsPage() {
           <div className="card stack">
             <h2>System</h2>
             <table><tbody>
-              <tr><td>Vinted-Modus</td><td><strong>{info.data.vintedMode === "mock" ? "Simulation (mock)" : "Live"}</strong></td></tr>
               <tr><td>KI</td><td>{info.data.aiEnabled ? `aktiv (${info.data.aiModel})` : "deaktiviert – ANTHROPIC_API_KEY fehlt"}</td></tr>
               <tr><td>Polling-Intervall</td><td>{info.data.pollIntervalMinutes} Minuten</td></tr>
               <tr><td>Standard-Veröffentlichungsabstand</td><td>{info.data.publishIntervalMinutes} Minuten</td></tr>

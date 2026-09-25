@@ -1,5 +1,5 @@
 import request from "supertest";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 // Each test file gets a fresh module graph, so env can be set before import.
 process.env.DASHBOARD_PASSWORD = "richtig-geheim-123";
@@ -7,6 +7,7 @@ process.env.API_TOKEN = "script-token-xyz";
 let app: import("express").Express;
 
 beforeAll(async () => {
+  vi.resetModules(); // the shared test setup already loaded env without these values
   app = (await import("../src/app.js")).createApp();
 });
 

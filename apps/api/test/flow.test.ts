@@ -5,9 +5,16 @@ import { createApp } from "../src/app.js";
 import { db } from "../src/db/index.js";
 import { runDueActions } from "../src/modules/automations/engine.js";
 import { processDueQueue } from "../src/modules/listings/queue.js";
-import { mockSentMessages } from "../src/vinted/mockAdapter.js";
+import { mockInject, mockSentMessages } from "./support/mockAdapter.js";
 
 const app = createApp();
+
+/** Injects a fake Vinted event and syncs the account (like the poller would). */
+async function simulate(accountId: number, type: "sale" | "favourite" | "message", text?: string) {
+  const acc = db.prepare("SELECT vinted_user_id FROM accounts WHERE id = ?").get(accountId) as { vinted_user_id: string };
+  mockInject(acc.vinted_user_id, type, { text });
+  return request(app).post(`/api/accounts/${accountId}/sync`);
+}
 let accountA: number;
 let accountB: number;
 let userA: string;
@@ -57,7 +64,7 @@ describe("end-to-end (mock mode)", () => {
     });
     expect(rule.status).toBe(201);
 
-    const sim = await request(app).post("/api/simulate").send({ accountId: accountA, type: "favourite" });
+    const sim = await simulate(accountA, "favourite");
     expect(sim.status).toBe(200);
     expect(sim.body.result.newFavourites).toBe(1);
     await runDueActions();
@@ -78,14 +85,14 @@ describe("end-to-end (mock mode)", () => {
       name: "Maße", triggerType: "message_received", triggerConfig: { keywords: ["maße"] }, actionType: "send_message",
       actionConfig: { message: "Die Maße stehen in der Beschreibung von {artikelname}." },
     });
-    await request(app).post("/api/simulate").send({ accountId: accountA, type: "message", text: "Ist das noch da?" });
-    await request(app).post("/api/simulate").send({ accountId: accountA, type: "message", text: "Wie sind die Maße?" });
+    await simulate(accountA, "message", "Ist das noch da?");
+    await simulate(accountA, "message", "Wie sind die Maße?");
     const actions = db.prepare("SELECT COUNT(*) c FROM scheduled_actions s JOIN automation_rules r ON r.id = s.rule_id WHERE r.name = 'Maße'").get() as { c: number };
     expect(actions.c).toBe(1);
   });
 
   it("detects sales, archives them and feeds stats", async () => {
-    const sim = await request(app).post("/api/simulate").send({ accountId: accountA, type: "sale" });
+    const sim = await simulate(accountA, "sale");
     expect(sim.body.result.newSales).toBe(1);
     const stats = await request(app).get("/api/stats/overview").query({ accountId: accountA });
     expect(stats.body.salesCount).toBe(1);

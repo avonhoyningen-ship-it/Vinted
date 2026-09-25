@@ -1,6 +1,6 @@
 export interface Account {
   id: number; name: string; domain: string; username: string | null; vinted_user_id: string | null;
-  session_hint: string | null; has_session: boolean; status: string; last_error: string | null; last_sync_at: string | null;
+  session_hint: string | null; has_session: boolean; has_refresh_token: boolean; status: string; last_error: string | null; last_sync_at: string | null;
   followers: number; active_listings: number; total_sales: number; unread_messages: number;
   publish_interval_minutes: number | null; polling_enabled: boolean; created_at: string;
 }

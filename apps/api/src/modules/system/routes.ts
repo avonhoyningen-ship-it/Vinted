@@ -8,10 +8,6 @@ import { eventBus, type DashboardEvent } from "../../lib/eventBus.js";
 import { h, HttpError } from "../../lib/http.js";
 import { DEFAULT_SETTINGS, getSettings, setSettings } from "../../lib/settings.js";
 import { photoPath } from "../../storage/photos.js";
-import { mockInject } from "../../vinted/mockAdapter.js";
-import { vintedClient } from "../../vinted/vintedClient.js";
-import { getAccount } from "../accounts/repo.js";
-import { syncAccount } from "../accounts/sync.js";
 import { aiEnabled } from "../listings/ai.js";
 import { pollAccounts } from "../../workers/scheduler.js";
 
@@ -23,7 +19,6 @@ systemRouter.get("/health", (_req, res) => {
 
 systemRouter.get("/info", (_req, res) => {
   res.json({
-    vintedMode: vintedClient.mode,
     aiEnabled: aiEnabled(),
     aiModel: env.anthropicModel,
     pollIntervalMinutes: env.pollIntervalMinutes,
@@ -48,20 +43,6 @@ systemRouter.put("/settings", h((req, res) => {
 systemRouter.post("/poll-now", h(async (_req, res) => {
   await pollAccounts(true);
   res.json({ ok: true });
-}));
-
-/** Mock mode only: injects a simulated event and syncs the account. */
-systemRouter.post("/simulate", h(async (req, res) => {
-  if (vintedClient.mode !== "mock") throw new HttpError(400, "Simulation ist nur im Mock-Modus verfügbar");
-  const { accountId, type, text } = z.object({
-    accountId: z.number().int().positive(), type: z.enum(["sale", "favourite", "message"]), text: z.string().max(500).optional(),
-  }).parse(req.body);
-  await syncAccount(accountId); // makes sure the mock knows this account
-  const account = getAccount(accountId);
-  if (!account.vinted_user_id) throw new HttpError(400, "Account wurde noch nicht synchronisiert");
-  const description = mockInject(account.vinted_user_id, type, { text });
-  const result = await syncAccount(accountId);
-  res.json({ description, result });
 }));
 
 /** Server-Sent Events stream for live notifications (sales, favourites, ...). */

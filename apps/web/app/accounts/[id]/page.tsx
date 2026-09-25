@@ -23,7 +23,6 @@ export default function AccountDetailPage() {
   const router = useRouter();
   const toast = useToast();
   const { data, error, reload } = useApi<Detail>(`/accounts/${id}`);
-  const info = useApi<{ vintedMode: string }>("/info");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -47,7 +46,8 @@ export default function AccountDetailPage() {
   return (
     <>
       <PageHead title={a.name} sub={<>{a.domain}{a.username && <> · @{a.username}</>} · <StatusBadge status={a.status} /></>}>
-        <button className="btn" disabled={busy || !a.has_session} onClick={() => run("Synchronisiert", () => api(`/accounts/${id}/sync`, { method: "POST" }))}>Synchronisieren</button>
+        <button className="btn" disabled={busy || !a.has_session} onClick={() => run("Synchronisiert", () => api<{ result: { warnings: string[] } }>(`/accounts/${id}/sync`, { method: "POST" })
+          .then((r) => r.result.warnings.forEach((w) => toast({ kind: "error", text: w }))))}>Synchronisieren</button>
         <button className="btn" onClick={() => setEditing(true)}>Bearbeiten</button>
         {a.has_session && (
           <button className="btn danger" disabled={busy} onClick={() => confirm("Session-Token löschen? Archivdaten bleiben erhalten.") && run("Getrennt", () => api(`/accounts/${id}/disconnect`, { method: "POST" }))}>Trennen</button>
@@ -67,17 +67,6 @@ export default function AccountDetailPage() {
           <Tile label="In Warteschlange" value={data.queuedCount} sub={`Letzter Sync ${relative(a.last_sync_at)}`} />
         </div>
 
-        {info.data?.vintedMode === "mock" && a.status === "connected" && (
-          <div className="card row">
-            <strong>Simulation:</strong>
-            {(["sale", "favourite", "message"] as const).map((t) => (
-              <button key={t} className="btn small" disabled={busy} onClick={() => run("Ereignis simuliert", () => api("/simulate", { method: "POST", json: { accountId: a.id, type: t } }))}>
-                {t === "sale" ? "💰 Verkauf" : t === "favourite" ? "❤️ Favorit" : "💬 Nachricht"}
-              </button>
-            ))}
-            <span className="small muted">Testet Sale-Sound, Regeln und Statistiken ohne echten Vinted-Zugriff.</span>
-          </div>
-        )}
 
         <div className="card">
           <h2>Aktive Listings ({data.listings.length})</h2>

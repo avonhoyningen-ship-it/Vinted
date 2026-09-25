@@ -1,7 +1,6 @@
 import { env } from "../config/env.js";
 import { RateLimiter } from "../lib/rateLimiter.js";
 import { liveAdapter } from "./liveAdapter.js";
-import { mockAdapter } from "./mockAdapter.js";
 import type { ListingDraft, SendMessageInput, VintedAdapter, VintedSession } from "./types.js";
 import { VintedError } from "./types.js";
 
@@ -13,11 +12,16 @@ export * from "./types.js";
  * backs off on HTTP 429. Change limits here, change endpoints in the adapter.
  */
 export class VintedClient {
-  private limiter: RateLimiter;
+  private limiter!: RateLimiter;
 
-  constructor(private adapter: VintedAdapter, minGapMs: number, private maxRetries = 2) {
-    // The mock needs no politeness delay; keeps tests and demos fast.
-    this.limiter = new RateLimiter(adapter.name === "mock" ? 0 : minGapMs, adapter.name === "mock" ? 0 : undefined);
+  constructor(private adapter: VintedAdapter, private minGapMs: number, private maxRetries = 2) {
+    this.useAdapter(adapter);
+  }
+
+  /** Test hook: swap the transport (tests use an in-memory fake). */
+  useAdapter(adapter: VintedAdapter, minGapMs = this.minGapMs) {
+    this.adapter = adapter;
+    this.limiter = new RateLimiter(minGapMs, minGapMs === 0 ? 0 : undefined);
   }
 
   get mode() {
@@ -31,6 +35,7 @@ export class VintedClient {
         return await this.limiter.schedule(accountKey, fn);
       } catch (e) {
         const err = e instanceof VintedError ? e : new VintedError((e as Error).message, "network");
+        // Auth errors and bot-protection blocks are never retried automatically.
         const retryable = err.code === "rate_limit" || err.code === "network";
         if (!retryable || attempt >= this.maxRetries) throw err;
         attempt++;
@@ -52,4 +57,5 @@ export class VintedClient {
   }
 }
 
-export const vintedClient = new VintedClient(env.vintedMode === "live" ? liveAdapter : mockAdapter, env.vintedMinRequestGapMs);
+/** Always the real Vinted client – there is no demo/mock fallback at runtime. */
+export const vintedClient = new VintedClient(liveAdapter, env.vintedMinRequestGapMs);

@@ -25,7 +25,7 @@ export default function ArchiveDetailPage() {
   const router = useRouter();
   const toast = useToast();
   const { data, error, reload } = useApi<Detail>(`/archive/${id}`);
-  const info = useApi<{ aiEnabled: boolean; vintedMode: string }>("/info");
+  const info = useApi<{ aiEnabled: boolean }>("/info");
   const [reupload, setReupload] = useState(false);
   const [manual, setManual] = useState(false);
 

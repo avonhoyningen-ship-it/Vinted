@@ -56,12 +56,16 @@ export function migrate(db: DB) {
     if (applied.has(m.id)) continue;
     db.transaction(() => {
       db.exec(m.sql);
+      m.run?.(db);
       db.prepare("INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)").run(m.id, m.name, new Date().toISOString());
     })();
   }
 }
 
 export const db: DB = open(env.databasePath);
+
+// State file of the removed demo mode – no longer used.
+if (env.databasePath !== ":memory:") fs.rmSync(path.join(path.dirname(env.databasePath), "mock-vinted.json"), { force: true });
 
 export const nowIso = () => new Date().toISOString();
 

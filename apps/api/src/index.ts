@@ -13,7 +13,7 @@ if (env.dashboardPassword && env.dashboardPassword.length < 10) {
 
 const app = createApp();
 const server = app.listen(env.port, () => {
-  console.log(`[api] http://localhost:${env.port}/api  (Vinted-Modus: ${env.vintedMode})`);
+  console.log(`[api] http://localhost:${env.port}/api`);
 });
 const stopWorkers = startWorkers();
 

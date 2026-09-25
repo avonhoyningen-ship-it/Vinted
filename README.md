@@ -28,9 +28,21 @@ Produktion lokal: `npm run build && npm start`. Tests: `npm test`.
 **Online von überall (iPhone, iPad, unterwegs):** siehe **[DEPLOY.md](DEPLOY.md)** – eigener Server mit
 Docker, automatischem HTTPS (Caddy) und Passwort-Login.
 
-Standardmäßig läuft das Dashboard im **Simulationsmodus** (`VINTED_MODE=mock`): Beliebiges Token ≥ 8 Zeichen
-eingeben → der Account wird mit drei Beispiel-Listings „verbunden“. Auf der Account-Detailseite lassen sich
-Verkäufe, Favoriten und Nachrichten simulieren, um Sale-Sound, Regeln und Statistiken zu testen.
+### Vinted-Account verbinden
+
+1. Im Browser bei vinted.de (bzw. deiner Länder-Domain) **einloggen**.
+2. `F12` → Reiter „Anwendung“ (Chrome/Edge) bzw. „Speicher“ (Firefox) → Cookies → `https://www.vinted.de`.
+3. Die Werte von **`access_token_web`** und (empfohlen) **`refresh_token_web`** kopieren.
+4. Im Dashboard unter **Accounts → „+ Account verbinden“** einfügen.
+
+Das Dashboard ruft dann den eingeloggten Nutzer (Name, Follower, Verkäufe) und seine **aktiven Listings**
+direkt von Vinted ab und legt sie im Archiv ab. Schlägt der Abruf fehl, erscheint eine klare Fehlermeldung
+(z. B. Token abgelaufen, nicht eingeloggt, Bot-Schutz von Vinted) – es gibt **keine Demo-Daten** als Ersatz.
+Das `access_token_web` gilt nur ca. 24 Stunden; mit hinterlegtem `refresh_token_web` versucht das Dashboard,
+erneuerte Tokens von Vinted zu übernehmen. Klappt das nicht, einfach neue Werte eintragen.
+
+Frühere Demo-Einträge (Accounts wie `@reseller_…` mit Levi's/Nike/Zara-Beispielen) werden beim ersten
+Start dieser Version automatisch aus der Datenbank gelöscht.
 
 ## Module
 
@@ -53,15 +65,15 @@ apps/api/src
 ├── lib/crypto.ts            AES-256-GCM für Session-Tokens
 ├── lib/rateLimiter.ts       Mindestabstand + Jitter pro Account
 ├── vinted/vintedClient.ts   zentrale Vinted-Schicht: Rate-Limit, Retry/Backoff bei 429
-│   ├── mockAdapter.ts       Simulation (Entwicklung/Demo/Tests)
-│   └── liveAdapter.ts       Vinted-Web-Endpunkte (siehe Einschränkungen)
+│   └── token.ts             liest Ablaufdatum/Nutzer aus dem access_token_web (für klare Fehlermeldungen)
+│   ├── liveAdapter.ts       echte Vinted-Web-Endpunkte mit deinem access_token_web
 ├── modules/
 │   ├── accounts/            CRUD + sync.ts (Profil, Listings, Verkäufe, Favoriten, Nachrichten)
 │   ├── archive/             Artikel, Fotos, Listing-Verlauf, Suche, Reupload
 │   ├── listings/            KI (ai.ts), Entwürfe, Warteschlange (queue.ts), Vorlagen
 │   ├── automations/         Regel-Engine (engine.ts)
 │   ├── stats/               Kennzahlen, Zeitreihen, Top-Listen
-│   └── system/              Einstellungen, SSE-Eventstream, Fotos, Simulation
+│   └── system/              Einstellungen, SSE-Eventstream, Fotos, Login
 └── workers/scheduler.ts     Hintergrund-Loops: Polling, Veröffentlichung, Aktionen, Preissenkung
 ```
 
@@ -111,10 +123,13 @@ aber keine Aktionen ausgelöst.
 
 ## Getroffene Annahmen & Entscheidungen
 
-1. **Keine offizielle Vinted-API.** Vinted bietet keine öffentliche API für Privat-Accounts. Der Live-Adapter
-   nutzt die Lese-Endpunkte der Vinted-Web-App (Profil, Kleiderschrank, Verkäufe, Benachrichtigungen, Posteingang).
-   Diese sind undokumentiert und können sich jederzeit ändern. Alle Pfade stehen ausschließlich in `liveAdapter.ts`.
-2. **Schreibende Aktionen im Live-Modus** (Einstellen, Nachrichten senden, Preis ändern) sind bewusst
+1. **Keine offizielle Vinted-API.** Vinted bietet keine öffentliche API für Privat-Accounts. Der Client
+   nutzt die Lese-Endpunkte der Vinted-Web-App: `/api/v2/users/current` (Profil) und `/api/v2/wardrobe/{id}/items`
+   (Listings) – getestet; Verkäufe, Benachrichtigungen und Posteingang werden zusätzlich versucht, ihr Ausfall
+   erscheint nur als Hinweis. Die Endpunkte sind undokumentiert und können sich ändern; alle Pfade stehen
+   ausschließlich in `liveAdapter.ts`. Vinteds Bot-Schutz wird respektiert und nicht umgangen: Blockiert Vinted,
+   meldet das Dashboard das klar und versucht es beim nächsten regulären Abruf erneut.
+2. **Schreibende Aktionen** (Einstellen, Nachrichten senden, Preis ändern) sind bewusst
    **nicht** gegen undokumentierte Endpunkte implementiert. Sie liefern eine klare Fehlermeldung. Alles ist
    vorbereitet: Wenn es einen offiziellen Weg gibt, wird nur `liveAdapter.ts` ergänzt. Bis dahin: Artikel im
    Dashboard vorbereiten, manuell auf Vinted einstellen und über „Manuell erfasst…“ im Archiv verknüpfen.
