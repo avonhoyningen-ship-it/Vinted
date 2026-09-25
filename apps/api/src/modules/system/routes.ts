@@ -1,9 +1,8 @@
 import fs from "node:fs";
-import type { SQLInputValue } from "node:sqlite";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../../config/env.js";
-import { db } from "../../db/index.js";
+import { currentUserId, db } from "../../db/index.js";
 import { eventBus, type DashboardEvent } from "../../lib/eventBus.js";
 import { h, HttpError } from "../../lib/http.js";
 import { applyBrandRules } from "../listings/brandRules.js";
@@ -29,24 +28,25 @@ systemRouter.get("/info", (_req, res) => {
   });
 });
 
-systemRouter.get("/settings", (_req, res) => {
-  res.json(getSettings());
-});
+systemRouter.get("/settings", h(async (_req, res) => {
+  res.json(await getSettings());
+}));
 
 systemRouter.get("/settings/defaults", (_req, res) => {
   res.json(DEFAULT_SETTINGS);
 });
 
-systemRouter.put("/settings", h((req, res) => {
+systemRouter.put("/settings", h(async (req, res) => {
   const body = z.record(z.string(), z.unknown()).parse(req.body);
   for (const k of Object.keys(body)) if (!(k in DEFAULT_SETTINGS)) throw new HttpError(400, `Unbekannte Einstellung ${k}`);
+  let saved;
   try {
-    const saved = setSettings(body);
-    if ("brand.rules" in body || "parcel.rules" in body) applyBrandRules();
-    res.json(saved);
+    saved = await setSettings(body);
   } catch (e) {
     throw new HttpError(400, (e as Error).message);
   }
+  if ("brand.rules" in body || "parcel.rules" in body) await applyBrandRules();
+  res.json(saved);
 }));
 
 systemRouter.post("/poll-now", h(async (_req, res) => {
@@ -63,7 +63,10 @@ systemRouter.get("/events/stream", (req, res) => {
     "x-accel-buffering": "no",
   });
   res.write("retry: 5000\n\n");
-  const send = (e: DashboardEvent) => res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+  const viewer = currentUserId();
+  const send = (e: DashboardEvent, userId: string) => {
+    if (userId === viewer) res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+  };
   const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
   eventBus.on("event", send);
   req.on("close", () => {
@@ -79,22 +82,27 @@ systemRouter.get("/photos/:file", (req, res) => {
   res.sendFile(file);
 });
 
-systemRouter.get("/dashboard", h((_req, res) => {
+systemRouter.get("/dashboard", h(async (_req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 7) + "-01";
-  const q = (sql: string, ...p: SQLInputValue[]) => db.prepare(sql).get(...p);
+  // COUNT/SUM come back as strings from Postgres: normalize numbers.
+  const q = async (sql: string, p: unknown[] = []) => {
+    const row = (await db.get(sql, p)) ?? {};
+    return Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === "string" && /^-?\d+$/.test(v) ? Number(v) : v === null && k !== "next_at" ? 0 : v]));
+  };
+  const count = async (sql: string) => Number((await q(sql)).c ?? 0);
   res.json({
-    accounts: q("SELECT COUNT(*) total, SUM(status = 'connected') connected, SUM(status = 'error') errors FROM accounts"),
-    today: q("SELECT COUNT(*) sales, COALESCE(SUM(price_cents), 0) revenue_cents FROM sales WHERE sold_at >= ?", today),
-    month: q("SELECT COUNT(*) sales, COALESCE(SUM(price_cents), 0) revenue_cents FROM sales WHERE sold_at >= ?", monthStart),
-    activeListings: (q("SELECT COUNT(*) c FROM listings WHERE status = 'active'") as { c: number }).c,
-    queue: q("SELECT COUNT(*) pending, MIN(scheduled_at) next_at FROM publish_queue WHERE status = 'pending'"),
-    failedQueue: (q("SELECT COUNT(*) c FROM publish_queue WHERE status = 'failed'") as { c: number }).c,
-    pendingActions: (q("SELECT COUNT(*) c FROM scheduled_actions WHERE status = 'pending'") as { c: number }).c,
-    drafts: (q("SELECT COUNT(*) c FROM items WHERE status = 'draft'") as { c: number }).c,
-    archiveTotal: (q("SELECT COUNT(*) c FROM items") as { c: number }).c,
-    recentEvents: db.prepare(`SELECT e.type, e.vinted_username, e.occurred_at, e.payload, a.name account_name, l.title
+    accounts: await q("SELECT COUNT(*) total, SUM(CASE WHEN status = 'connected' THEN 1 ELSE 0 END) connected, SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) errors FROM accounts"),
+    today: await q("SELECT COUNT(*) sales, COALESCE(SUM(price_cents), 0) revenue_cents FROM sales WHERE sold_at >= ?", [today]),
+    month: await q("SELECT COUNT(*) sales, COALESCE(SUM(price_cents), 0) revenue_cents FROM sales WHERE sold_at >= ?", [monthStart]),
+    activeListings: await count("SELECT COUNT(*) c FROM listings WHERE status = 'active'"),
+    queue: await q("SELECT COUNT(*) pending, MIN(scheduled_at) next_at FROM publish_queue WHERE status = 'pending'"),
+    failedQueue: await count("SELECT COUNT(*) c FROM publish_queue WHERE status = 'failed'"),
+    pendingActions: await count("SELECT COUNT(*) c FROM scheduled_actions WHERE status = 'pending'"),
+    drafts: await count("SELECT COUNT(*) c FROM items WHERE status = 'draft'"),
+    archiveTotal: await count("SELECT COUNT(*) c FROM items"),
+    recentEvents: await db.all(`SELECT e.type, e.vinted_username, e.occurred_at, e.payload, a.name account_name, l.title
       FROM vinted_events e JOIN accounts a ON a.id = e.account_id LEFT JOIN listings l ON l.id = e.listing_id
-      ORDER BY e.occurred_at DESC LIMIT 15`).all(),
+      ORDER BY e.occurred_at DESC LIMIT 15`),
   });
 }));

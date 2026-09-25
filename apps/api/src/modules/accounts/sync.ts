@@ -36,7 +36,7 @@ const keyFor = (a: AccountRow) => `account:${a.id}`;
 
 /** Imports a listing that exists on Vinted but not yet in the archive. */
 async function importRemoteListing(account: AccountRow, r: RemoteListing): Promise<ListingRow> {
-  const item = createItem({
+  const item = await createItem({
     title: r.title.slice(0, 200) || "Ohne Titel",
     description: r.description.slice(0, 5000),
     brand: r.brand ?? null,
@@ -47,10 +47,10 @@ async function importRemoteListing(account: AccountRow, r: RemoteListing): Promi
     currency: r.currency,
   });
   // Prices already live on Vinted were set by the seller: learn from them.
-  if (r.priceCents) confirmPrice(item.id, r.priceCents, "confirmed");
+  if (r.priceCents) await confirmPrice(item.id, r.priceCents, "confirmed");
   for (const url of r.photoUrls.slice(0, 20)) {
     try {
-      addPhoto(item.id, await storePhotoFromUrl(url), null);
+      await addPhoto(item.id, await storePhotoFromUrl(url), null);
     } catch (e) {
       console.warn(`[sync] Foto-Import fehlgeschlagen (${url}):`, (e as Error).message);
     }
@@ -63,9 +63,9 @@ async function importRemoteListing(account: AccountRow, r: RemoteListing): Promi
   });
 }
 
-function listingByVintedId(accountId: number, vintedItemId: string | null): ListingRow | undefined {
+async function listingByVintedId(accountId: number, vintedItemId: string | null): Promise<ListingRow | undefined> {
   if (!vintedItemId) return undefined;
-  return db.prepare("SELECT * FROM listings WHERE account_id = ? AND vinted_item_id = ?").get(accountId, vintedItemId) as unknown as ListingRow | undefined;
+  return db.get<ListingRow>("SELECT * FROM listings WHERE account_id = ? AND vinted_item_id = ?", [accountId, vintedItemId]);
 }
 
 /**
@@ -74,7 +74,7 @@ function listingByVintedId(accountId: number, vintedItemId: string | null): List
  * into the automation engine and the live notification stream.
  */
 export async function syncAccount(accountId: number): Promise<SyncResult> {
-  const account = getAccount(accountId);
+  const account = await getAccount(accountId);
   const session = sessionFor(account);
   const key = keyFor(account);
   const initial = !account.last_sync_at;
@@ -82,9 +82,9 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
 
   try {
     const profile = await vintedClient.verifySession(key, session);
-    db.prepare(`UPDATE accounts SET username = ?, vinted_user_id = ?, followers = ?, active_listings = ?, total_sales = ?,
-      unread_messages = COALESCE(?, unread_messages), status = 'connected', last_error = NULL, updated_at = ? WHERE id = ?`)
-      .run(profile.username, profile.userId, profile.followers, profile.activeListings, profile.totalSales, profile.unreadMessages, nowIso(), accountId);
+    await db.run(`UPDATE accounts SET username = ?, vinted_user_id = ?, followers = ?, active_listings = ?, total_sales = ?,
+      unread_messages = COALESCE(?, unread_messages), status = 'connected', last_error = NULL, updated_at = ? WHERE id = ?`,
+      [profile.username, profile.userId, profile.followers, profile.activeListings, profile.totalSales, profile.unreadMessages, nowIso(), accountId]);
     session.vintedUserId = profile.userId;
 
     // --- listings ---
@@ -92,7 +92,7 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
     const seen = new Set<string>();
     for (const r of remote) {
       seen.add(r.vintedItemId);
-      const local = listingByVintedId(accountId, r.vintedItemId);
+      const local = await listingByVintedId(accountId, r.vintedItemId);
       if (!local) {
         // Only active listings are imported; sold/hidden ones we never saw are skipped.
         if (r.status !== "active") continue;
@@ -101,17 +101,17 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
         continue;
       }
       const status = local.status === "sold" ? "sold" : r.status === "hidden" ? "hidden" : r.status === "active" ? "active" : local.status;
-      db.prepare("UPDATE listings SET favourites = ?, views = ?, price_cents = ?, status = ?, ended_at = CASE WHEN ? = 'active' THEN NULL ELSE ended_at END, updated_at = ? WHERE id = ?")
-        .run(r.favourites, r.views, r.priceCents, status, status, nowIso(), local.id);
-      if (status !== local.status) recomputeItemStatus(local.item_id);
+      await db.run("UPDATE listings SET favourites = ?, views = ?, price_cents = ?, status = ?, ended_at = CASE WHEN ? = 'active' THEN NULL ELSE ended_at END, updated_at = ? WHERE id = ?",
+        [r.favourites, r.views, r.priceCents, status, status, nowIso(), local.id]);
+      if (status !== local.status) await recomputeItemStatus(local.item_id);
       result.updated++;
     }
     // Listings that disappeared from Vinted are marked removed; archive data stays.
     if (remote.length > 0) {
-      const active = db.prepare("SELECT * FROM listings WHERE account_id = ? AND status = 'active' AND vinted_item_id IS NOT NULL").all(accountId) as unknown as ListingRow[];
+      const active = await db.all<ListingRow>("SELECT * FROM listings WHERE account_id = ? AND status = 'active' AND vinted_item_id IS NOT NULL", [accountId]);
       for (const l of active) {
         if (!seen.has(l.vinted_item_id!)) {
-          endListing(l.id, "removed");
+          await endListing(l.id, "removed");
           result.ended++;
         }
       }
@@ -131,15 +131,15 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
 
     // --- sales ---
     for (const s of await optional("Verkäufe", () => vintedClient.fetchSales(key, session))) {
-      const listing = listingByVintedId(accountId, s.vintedItemId);
-      const item = listing ? (db.prepare("SELECT category, brand FROM items WHERE id = ?").get(listing.item_id) as { category: string | null; brand: string | null }) : null;
-      const ins = db.prepare(`INSERT OR IGNORE INTO sales (account_id, listing_id, item_id, external_id, title, price_cents, currency, buyer, category, brand, sold_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(accountId, listing?.id ?? null, listing?.item_id ?? null, s.externalId, s.title, s.priceCents, s.currency, s.buyer, item?.category ?? null, item?.brand ?? null, s.soldAt);
-      if (!ins.changes) continue;
-      if (listing && listing.status !== "sold") markListingSold(listing.id, s.soldAt, s.priceCents);
+      const listing = await listingByVintedId(accountId, s.vintedItemId);
+      const item = listing ? await db.get<{ category: string | null; brand: string | null }>("SELECT category, brand FROM items WHERE id = ?", [listing.item_id]) : null;
+      const inserted = await db.run(`INSERT INTO sales (account_id, listing_id, item_id, external_id, title, price_cents, currency, buyer, category, brand, sold_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+        [accountId, listing?.id ?? null, listing?.item_id ?? null, s.externalId, s.title, s.priceCents, s.currency, s.buyer, item?.category ?? null, item?.brand ?? null, s.soldAt]);
+      if (!inserted) continue;
+      if (listing && listing.status !== "sold") await markListingSold(listing.id, s.soldAt, s.priceCents);
       result.newSales++;
-      ingestEvent({
+      await ingestEvent({
         accountId, type: "sale", externalId: s.externalId, listingId: listing?.id ?? null, userId: s.buyer ? `buyer:${s.buyer}` : null,
         username: s.buyer, payload: { vintedItemId: s.vintedItemId, priceCents: s.priceCents }, occurredAt: s.soldAt,
       }, initial);
@@ -153,8 +153,8 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
 
     // --- favourites ---
     for (const f of await optional("Favoriten", () => vintedClient.fetchFavourites(key, session))) {
-      const listing = listingByVintedId(accountId, f.vintedItemId);
-      const r = ingestEvent({
+      const listing = await listingByVintedId(accountId, f.vintedItemId);
+      const r = await ingestEvent({
         accountId, type: "favourite", externalId: f.externalId, listingId: listing?.id ?? null, userId: f.userId, username: f.username,
         payload: { vintedItemId: f.vintedItemId }, occurredAt: f.occurredAt,
       }, initial);
@@ -166,8 +166,8 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
 
     // --- messages ---
     for (const m of await optional("Nachrichten", () => vintedClient.fetchMessages(key, session))) {
-      const listing = listingByVintedId(accountId, m.vintedItemId);
-      const r = ingestEvent({
+      const listing = await listingByVintedId(accountId, m.vintedItemId);
+      const r = await ingestEvent({
         accountId, type: "message", externalId: m.externalId, listingId: listing?.id ?? null, userId: m.userId, username: m.username,
         payload: { text: m.text, conversationId: m.conversationId, vintedItemId: m.vintedItemId }, occurredAt: m.occurredAt,
       }, initial);
@@ -178,13 +178,14 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
     }
 
     if (result.warnings.length) console.warn(`[sync] Account ${accountId}:`, result.warnings.join(" | "));
-    db.prepare("UPDATE accounts SET last_sync_at = ?, updated_at = ? WHERE id = ?").run(nowIso(), nowIso(), accountId);
+    await db.run("UPDATE accounts SET last_sync_at = ?, updated_at = ? WHERE id = ?", [nowIso(), nowIso(), accountId]);
     eventBus.publish({ type: "account_status", accountId, status: "connected" });
     return result;
   } catch (e) {
     const msg = (e as Error).message;
-    const status = e instanceof VintedError && e.code === "auth" ? "error" : getAccount(accountId).status === "pending" ? "error" : getAccount(accountId).status;
-    setAccountStatus(accountId, status, msg);
+    const current = (await getAccount(accountId)).status;
+    const status = e instanceof VintedError && e.code === "auth" ? "error" : current === "pending" ? "error" : current;
+    await setAccountStatus(accountId, status, msg);
     eventBus.publish({ type: "account_status", accountId, status, error: msg });
     throw e;
   }

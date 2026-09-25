@@ -66,32 +66,32 @@ export function ruleToApi(r: RuleRow) {
   };
 }
 
-export function getRule(id: number): RuleRow {
-  const r = db.prepare("SELECT * FROM automation_rules WHERE id = ?").get(id) as unknown as RuleRow | undefined;
+export async function getRule(id: number): Promise<RuleRow> {
+  const r = await db.get<RuleRow>("SELECT * FROM automation_rules WHERE id = ?", [id]);
   if (!r) throw notFound("Regel");
   return r;
 }
 
-export function saveRule(input: RuleInput, id?: number): RuleRow {
-  if (input.accountId) getAccount(input.accountId);
+export async function saveRule(input: RuleInput, id?: number): Promise<RuleRow> {
+  if (input.accountId) await getAccount(input.accountId);
   const params = {
     name: input.name, enabled: input.enabled ? 1 : 0, account_id: input.accountId, trigger_type: input.triggerType,
     trigger_config: JSON.stringify(input.triggerConfig), action_type: input.actionType, action_config: JSON.stringify(input.actionConfig),
     delay_minutes: input.delayMinutes, per_user_limit: input.perUserLimit, per_user_window_hours: input.perUserWindowHours,
   };
   if (id) {
-    getRule(id);
-    db.prepare(`UPDATE automation_rules SET name=@name, enabled=@enabled, account_id=@account_id, trigger_type=@trigger_type,
+    await getRule(id);
+    await db.run(`UPDATE automation_rules SET name=@name, enabled=@enabled, account_id=@account_id, trigger_type=@trigger_type,
       trigger_config=@trigger_config, action_type=@action_type, action_config=@action_config, delay_minutes=@delay_minutes,
-      per_user_limit=@per_user_limit, per_user_window_hours=@per_user_window_hours, updated_at=@now WHERE id=@id`)
-      .run({ ...params, now: nowIso(), id });
+      per_user_limit=@per_user_limit, per_user_window_hours=@per_user_window_hours, updated_at=@now WHERE id=@id`,
+      { ...params, now: nowIso(), id });
     return getRule(id);
   }
-  const r = db.prepare(`INSERT INTO automation_rules (name, enabled, account_id, trigger_type, trigger_config, action_type, action_config,
+  const newId = await db.insert(`INSERT INTO automation_rules (name, enabled, account_id, trigger_type, trigger_config, action_type, action_config,
       delay_minutes, per_user_limit, per_user_window_hours)
-    VALUES (@name, @enabled, @account_id, @trigger_type, @trigger_config, @action_type, @action_config, @delay_minutes, @per_user_limit, @per_user_window_hours)`)
-    .run(params);
-  return getRule(Number(r.lastInsertRowid));
+    VALUES (@name, @enabled, @account_id, @trigger_type, @trigger_config, @action_type, @action_config, @delay_minutes, @per_user_limit, @per_user_window_hours)`,
+    params);
+  return getRule(newId);
 }
 
 // ---------- events ----------
@@ -119,22 +119,21 @@ export interface IncomingEvent {
  * Silent mode is used for the very first sync of an account so historic
  * favourites/messages don't trigger a burst of automated messages.
  */
-export function ingestEvent(e: IncomingEvent, silent = false): { isNew: boolean; eventId: number | null; scheduled: number } {
-  const r = db.prepare(`
-    INSERT OR IGNORE INTO vinted_events (account_id, type, external_id, listing_id, vinted_user_id, vinted_username, payload, occurred_at, processed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(e.accountId, e.type, e.externalId, e.listingId, e.userId, e.username, JSON.stringify(e.payload), e.occurredAt, silent ? nowIso() : null);
-  if (!r.changes) return { isNew: false, eventId: null, scheduled: 0 };
-  const eventId = Number(r.lastInsertRowid);
+export async function ingestEvent(e: IncomingEvent, silent = false): Promise<{ isNew: boolean; eventId: number | null; scheduled: number }> {
+  const eventId = await db.insert(`
+    INSERT INTO vinted_events (account_id, type, external_id, listing_id, vinted_user_id, vinted_username, payload, occurred_at, processed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING
+  `, [e.accountId, e.type, e.externalId, e.listingId, e.userId, e.username, JSON.stringify(e.payload), e.occurredAt, silent ? nowIso() : null]);
+  if (!eventId) return { isNew: false, eventId: null, scheduled: 0 };
   if (silent) return { isNew: true, eventId, scheduled: 0 };
-  const scheduled = evaluateEvent(eventId, e);
-  db.prepare("UPDATE vinted_events SET processed_at = ? WHERE id = ?").run(nowIso(), eventId);
+  const scheduled = await evaluateEvent(eventId, e);
+  await db.run("UPDATE vinted_events SET processed_at = ? WHERE id = ?", [nowIso(), eventId]);
   return { isNew: true, eventId, scheduled };
 }
 
-function matchingRules(trigger: keyof typeof TRIGGERS, accountId: number): RuleRow[] {
-  return db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger_type = ? AND (account_id IS NULL OR account_id = ?)")
-    .all(trigger, accountId) as unknown as RuleRow[];
+function matchingRules(trigger: keyof typeof TRIGGERS, accountId: number): Promise<RuleRow[]> {
+  return db.all<RuleRow>("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger_type = ? AND (account_id IS NULL OR account_id = ?)",
+    [trigger, accountId]);
 }
 
 export function matchesKeywords(text: string, keywords: string[] | undefined): boolean {
@@ -143,16 +142,16 @@ export function matchesKeywords(text: string, keywords: string[] | undefined): b
   return keywords.some((k) => t.includes(k.toLowerCase()));
 }
 
-function userLimitReached(rule: RuleRow, userId: string): boolean {
+async function userLimitReached(rule: RuleRow, userId: string): Promise<boolean> {
   const since = new Date(Date.now() - rule.per_user_window_hours * 3600_000).toISOString();
-  const c = db.prepare(`SELECT COUNT(*) c FROM scheduled_actions
-    WHERE rule_id = ? AND target_user_id = ? AND status IN ('pending','done') AND created_at >= ?`).get(rule.id, userId, since) as { c: number };
-  return c.c >= rule.per_user_limit;
+  const c = await db.get<{ c: number }>(`SELECT COUNT(*) c FROM scheduled_actions
+    WHERE rule_id = ? AND target_user_id = ? AND status IN ('pending','done') AND created_at >= ?`, [rule.id, userId, since]);
+  return Number(c?.c ?? 0) >= rule.per_user_limit;
 }
 
-function evaluateEvent(eventId: number, e: IncomingEvent): number {
+async function evaluateEvent(eventId: number, e: IncomingEvent): Promise<number> {
   let scheduled = 0;
-  for (const rule of matchingRules(TRIGGER_FOR[e.type], e.accountId)) {
+  for (const rule of await matchingRules(TRIGGER_FOR[e.type], e.accountId)) {
     const tc = JSON.parse(rule.trigger_config) as z.infer<typeof triggerConfig>;
     const ac = JSON.parse(rule.action_config) as z.infer<typeof actionConfig>;
     if (e.type === "message" && !matchesKeywords(String(e.payload.text ?? ""), tc.keywords)) continue;
@@ -161,45 +160,45 @@ function evaluateEvent(eventId: number, e: IncomingEvent): number {
     const payload = JSON.stringify({
       message: ac.message, username: e.username, conversationId: e.payload.conversationId ?? null, vintedItemId: e.payload.vintedItemId ?? null,
     });
-    if (userLimitReached(rule, e.userId)) {
-      insertAction({ ...base, payload, run_at: nowIso(), status: "skipped", result: "Häufigkeitslimit pro Nutzer erreicht" });
+    if (await userLimitReached(rule, e.userId)) {
+      await insertAction({ ...base, payload, run_at: nowIso(), status: "skipped", result: "Häufigkeitslimit pro Nutzer erreicht" });
       continue;
     }
-    insertAction({ ...base, payload, run_at: new Date(Date.now() + rule.delay_minutes * 60_000).toISOString(), status: "pending", result: null });
+    await insertAction({ ...base, payload, run_at: new Date(Date.now() + rule.delay_minutes * 60_000).toISOString(), status: "pending", result: null });
     scheduled++;
   }
   return scheduled;
 }
 
-function insertAction(a: {
+async function insertAction(a: {
   rule_id: number; event_id: number | null; account_id: number; listing_id: number | null; action_type: string;
   target_user_id: string | null; payload: string; run_at: string; status: string; result: string | null;
 }) {
-  db.prepare(`INSERT INTO scheduled_actions (rule_id, event_id, account_id, listing_id, action_type, target_user_id, payload, run_at, status, result)
-    VALUES (@rule_id, @event_id, @account_id, @listing_id, @action_type, @target_user_id, @payload, @run_at, @status, @result)`).run(a);
+  await db.run(`INSERT INTO scheduled_actions (rule_id, event_id, account_id, listing_id, action_type, target_user_id, payload, run_at, status, result)
+    VALUES (@rule_id, @event_id, @account_id, @listing_id, @action_type, @target_user_id, @payload, @run_at, @status, @result)`, a);
 }
 
 // ---------- stale listings (time-based trigger) ----------
 
 /** Schedules price drops for listings that have been active for too long. */
-export function scheduleStaleListingActions(now = new Date()): number {
+export async function scheduleStaleListingActions(now = new Date()): Promise<number> {
   let scheduled = 0;
-  const rules = db.prepare("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger_type = 'listing_stale'").all() as unknown as RuleRow[];
+  const rules = await db.all<RuleRow>("SELECT * FROM automation_rules WHERE enabled = 1 AND trigger_type = 'listing_stale'");
   for (const rule of rules) {
     const tc = JSON.parse(rule.trigger_config) as z.infer<typeof triggerConfig>;
     const ac = JSON.parse(rule.action_config) as z.infer<typeof actionConfig>;
     const listedBefore = new Date(now.getTime() - (tc.days ?? 14) * 86400_000).toISOString();
     const droppedBefore = new Date(now.getTime() - (ac.repeatEveryDays ?? tc.days ?? 7) * 86400_000).toISOString();
-    const candidates = db.prepare(`
+    const candidates = await db.all<{ id: number; account_id: number }>(`
       SELECT l.id, l.account_id FROM listings l JOIN accounts a ON a.id = l.account_id
       WHERE l.status = 'active' AND a.status = 'connected' AND l.listed_at <= @listedBefore
         AND (@accountId IS NULL OR l.account_id = @accountId)
         AND (l.last_price_drop_at IS NULL OR l.last_price_drop_at <= @droppedBefore)
         AND (@minPrice IS NULL OR l.price_cents > @minPrice)
         AND NOT EXISTS (SELECT 1 FROM scheduled_actions s WHERE s.rule_id = @ruleId AND s.listing_id = l.id AND s.status = 'pending')
-    `).all({ listedBefore, droppedBefore, accountId: rule.account_id, minPrice: ac.minPriceCents ?? null, ruleId: rule.id }) as { id: number; account_id: number }[];
+    `, { listedBefore, droppedBefore, accountId: rule.account_id, minPrice: ac.minPriceCents ?? null, ruleId: rule.id });
     for (const c of candidates) {
-      insertAction({
+      await insertAction({
         rule_id: rule.id, event_id: null, account_id: c.account_id, listing_id: c.id, action_type: "reduce_price", target_user_id: null,
         payload: JSON.stringify({ percent: ac.percent, minPriceCents: ac.minPriceCents ?? null }),
         run_at: new Date(now.getTime() + rule.delay_minutes * 60_000).toISOString(), status: "pending", result: null,
@@ -223,20 +222,20 @@ interface ActionRow {
   target_user_id: string | null; payload: string; run_at: string; status: string;
 }
 
-function finish(id: number, status: "done" | "failed" | "skipped", result: string) {
-  db.prepare("UPDATE scheduled_actions SET status = ?, result = ?, executed_at = ? WHERE id = ?").run(status, result, nowIso(), id);
+async function finish(id: number, status: "done" | "failed" | "skipped", result: string) {
+  await db.run("UPDATE scheduled_actions SET status = ?, result = ?, executed_at = ? WHERE id = ?", [status, result, nowIso(), id]);
 }
 
-function messagesSentToday(accountId: number): number {
+async function messagesSentToday(accountId: number): Promise<number> {
   const since = new Date(Date.now() - 86400_000).toISOString();
-  return (db.prepare("SELECT COUNT(*) c FROM scheduled_actions WHERE account_id = ? AND action_type = 'send_message' AND status = 'done' AND executed_at >= ?")
-    .get(accountId, since) as { c: number }).c;
+  return Number((await db.get<{ c: number }>("SELECT COUNT(*) c FROM scheduled_actions WHERE account_id = ? AND action_type = 'send_message' AND status = 'done' AND executed_at >= ?",
+    [accountId, since]))?.c ?? 0);
 }
 
-export function templateVars(listingId: number | null, accountId: number, username?: string | null, newPriceCents?: number) {
-  const account = getAccount(accountId);
-  const l = listingId ? getListing(listingId) : null;
-  const item = l ? (db.prepare("SELECT brand, size FROM items WHERE id = ?").get(l.item_id) as { brand: string | null; size: string | null }) : null;
+export async function templateVars(listingId: number | null, accountId: number, username?: string | null, newPriceCents?: number) {
+  const account = await getAccount(accountId);
+  const l = listingId ? await getListing(listingId) : null;
+  const item = l ? await db.get<{ brand: string | null; size: string | null }>("SELECT brand, size FROM items WHERE id = ?", [l.item_id]) : null;
   return {
     artikelname: l?.title ?? "",
     preis: l ? formatPrice(l.price_cents, l.currency) : "",
@@ -249,46 +248,46 @@ export function templateVars(listingId: number | null, accountId: number, userna
 }
 
 export async function executeAction(a: ActionRow): Promise<void> {
-  const account = getAccount(a.account_id);
-  if (account.status !== "connected") return finish(a.id, "skipped", "Account nicht verbunden");
+  const account = await getAccount(a.account_id);
+  if (account.status !== "connected") return await finish(a.id, "skipped", "Account nicht verbunden");
   const payload = JSON.parse(a.payload) as Record<string, unknown>;
   const session = sessionFor(account);
   const key = `account:${account.id}`;
   try {
     if (a.action_type === "send_message") {
-      if (messagesSentToday(account.id) >= getSetting("automation.dailyMessageCap")) {
-        return finish(a.id, "skipped", "Tageslimit für automatische Nachrichten erreicht");
+      if ((await messagesSentToday(account.id)) >= (await getSetting("automation.dailyMessageCap"))) {
+        return await finish(a.id, "skipped", "Tageslimit für automatische Nachrichten erreicht");
       }
-      if (a.listing_id && getListing(a.listing_id).status !== "active" && payload.username && a.rule_id) {
-        const rule = db.prepare("SELECT trigger_type FROM automation_rules WHERE id = ?").get(a.rule_id) as { trigger_type: string } | undefined;
-        if (rule?.trigger_type === "item_favourited") return finish(a.id, "skipped", "Artikel nicht mehr aktiv");
+      if (a.listing_id && (await getListing(a.listing_id)).status !== "active" && payload.username && a.rule_id) {
+        const rule = await db.get<{ trigger_type: string }>("SELECT trigger_type FROM automation_rules WHERE id = ?", [a.rule_id]);
+        if (rule?.trigger_type === "item_favourited") return await finish(a.id, "skipped", "Artikel nicht mehr aktiv");
       }
-      const text = renderTemplate(String(payload.message ?? ""), templateVars(a.listing_id, a.account_id, payload.username as string));
+      const text = renderTemplate(String(payload.message ?? ""), await templateVars(a.listing_id, a.account_id, payload.username as string));
       await vintedClient.sendMessage(key, session, {
         toUserId: a.target_user_id!, conversationId: (payload.conversationId as string) ?? null,
         vintedItemId: (payload.vintedItemId as string) ?? null, text,
       });
-      return finish(a.id, "done", text);
+      return await finish(a.id, "done", text);
     }
     if (a.action_type === "reduce_price") {
-      const l = getListing(a.listing_id!);
-      if (l.status !== "active" || l.price_cents === null || !l.vinted_item_id) return finish(a.id, "skipped", "Listing nicht mehr aktiv");
+      const l = await getListing(a.listing_id!);
+      if (l.status !== "active" || l.price_cents === null || !l.vinted_item_id) return await finish(a.id, "skipped", "Listing nicht mehr aktiv");
       const next = reducedPrice(l.price_cents, Number(payload.percent ?? 10), (payload.minPriceCents as number | null) ?? null);
-      if (next >= l.price_cents) return finish(a.id, "skipped", "Mindestpreis erreicht");
+      if (next >= l.price_cents) return await finish(a.id, "skipped", "Mindestpreis erreicht");
       await vintedClient.updatePrice(key, session, l.vinted_item_id, next);
-      setListingPrice(l.id, next, `Automatisierung #${a.rule_id}`);
-      return finish(a.id, "done", `${formatPrice(l.price_cents, l.currency)} → ${formatPrice(next, l.currency)}`);
+      await setListingPrice(l.id, next, `Automatisierung #${a.rule_id}`);
+      return await finish(a.id, "done", `${formatPrice(l.price_cents, l.currency)} → ${formatPrice(next, l.currency)}`);
     }
-    finish(a.id, "failed", `Unbekannte Aktion ${a.action_type}`);
+    await finish(a.id, "failed", `Unbekannte Aktion ${a.action_type}`);
   } catch (e) {
     const msg = e instanceof VintedError || e instanceof HttpError ? e.message : (e as Error).message;
-    finish(a.id, "failed", msg);
+    await finish(a.id, "failed", msg);
   }
 }
 
 export async function runDueActions(limit = 20): Promise<number> {
-  if (getSetting("automation.paused")) return 0;
-  const due = db.prepare("SELECT * FROM scheduled_actions WHERE status = 'pending' AND run_at <= ? ORDER BY run_at LIMIT ?").all(nowIso(), limit) as unknown as ActionRow[];
+  if (await getSetting("automation.paused")) return 0;
+  const due = await db.all<ActionRow>("SELECT * FROM scheduled_actions WHERE status = 'pending' AND run_at <= ? ORDER BY run_at LIMIT ?", [nowIso(), limit]);
   for (const a of due) await executeAction(a);
   return due.length;
 }

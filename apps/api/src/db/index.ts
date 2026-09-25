@@ -1,71 +1,73 @@
-import fs from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { env } from "../config/env.js";
-import { migrations } from "./migrations.js";
+import { sqliteDriver } from "./sqlite.js";
+import type { Driver, Params, Row } from "./types.js";
+
+export type { Params, Row } from "./types.js";
 
 /**
- * Uses Node's built-in SQLite (node:sqlite, Node >= 22.13), so no native
- * module has to be compiled on install (works on Windows without Visual Studio).
+ * Data access for the whole app. Locally a SQLite file; in the cloud Postgres
+ * (Supabase) where row level security keeps every user to their own rows.
+ * All calls are async so both drivers share the same code.
  */
-export type DB = DatabaseSync & {
-  /** Wraps fn in a transaction (nested calls use savepoints). Returns a runner like better-sqlite3. */
-  transaction<T>(fn: () => T): () => T;
-};
 
-let depth = 0;
+/** The user whose data a request/job works on. Local mode: always "local". */
+export const LOCAL_USER = "local";
+const userStore = new AsyncLocalStorage<string>();
 
-function open(file: string): DB {
-  if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
-  const raw = new DatabaseSync(file);
-  raw.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-  // Like better-sqlite3's usage in this codebase: shared param objects may carry extra keys.
-  const prepare = raw.prepare.bind(raw);
-  const db = Object.assign(raw, {
-    prepare(sql: string) {
-      const stmt = prepare(sql);
-      stmt.setAllowUnknownNamedParameters(true);
-      return stmt;
-    },
-    transaction<T>(fn: () => T) {
-      return () => {
-        const sp = `sp${depth}`;
-        raw.exec(depth === 0 ? "BEGIN" : `SAVEPOINT ${sp}`);
-        depth++;
-        try {
-          const result = fn();
-          depth--;
-          raw.exec(depth === 0 ? "COMMIT" : `RELEASE ${sp}`);
-          return result;
-        } catch (e) {
-          depth--;
-          raw.exec(depth === 0 ? "ROLLBACK" : `ROLLBACK TO ${sp}; RELEASE ${sp}`);
-          throw e;
-        }
-      };
-    },
-  }) as DB;
-  migrate(db);
-  return db;
+export function currentUserId(): string {
+  return userStore.getStore() ?? LOCAL_USER;
 }
 
-export function migrate(db: DB) {
-  db.exec("CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)");
-  const applied = new Set(db.prepare("SELECT id FROM _migrations").all().map((r) => Number(r.id)));
-  for (const m of migrations) {
-    if (applied.has(m.id)) continue;
-    db.transaction(() => {
-      db.exec(m.sql);
-      m.run?.(db);
-      db.prepare("INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)").run(m.id, m.name, new Date().toISOString());
-    })();
+/** Runs fn with every query scoped to `userId`. */
+export function withUser<T>(userId: string, fn: () => T): T {
+  return userStore.run(userId, fn);
+}
+
+/** Runs a background job once per user, each in its own user scope; one failing user doesn't stop the others. */
+export async function forEachUser(fn: () => Promise<unknown>) {
+  const ids = (await driver.userIds?.()) ?? [LOCAL_USER];
+  for (const id of ids) {
+    try {
+      await withUser(id, fn);
+    } catch (e) {
+      console.error(`[jobs] ${id}:`, (e as Error).message);
+    }
   }
 }
 
-export const db: DB = open(env.databasePath);
+let driver: Driver = sqliteDriver(env.databasePath);
 
-// State file of the removed demo mode – no longer used.
-if (env.databasePath !== ":memory:") fs.rmSync(path.join(path.dirname(env.databasePath), "mock-vinted.json"), { force: true });
+/** Swaps the driver (Postgres in cloud mode, tests). */
+export function setDriver(d: Driver) {
+  driver = d;
+}
+export const getDriver = () => driver;
+
+export const db = {
+  all<T = Row>(sql: string, params?: Params): Promise<T[]> {
+    return driver.all(sql, params) as Promise<T[]>;
+  },
+  get<T = Row>(sql: string, params?: Params): Promise<T | undefined> {
+    return driver.get(sql, params) as Promise<T | undefined>;
+  },
+  /** Returns the number of changed rows. */
+  async run(sql: string, params?: Params): Promise<number> {
+    return (await driver.run(sql, params)).changes;
+  },
+  /** INSERT that returns the new row's id (0 if nothing was inserted, e.g. ON CONFLICT DO NOTHING). */
+  async insert(sql: string, params?: Params): Promise<number> {
+    const r = await driver.run(sql, params);
+    return r.changes ? r.lastId : 0;
+  },
+  exec(sql: string): Promise<void> {
+    return driver.exec(sql);
+  },
+  /** Runs fn in one transaction (nested calls become savepoints). Keep fn to DB calls only. */
+  tx<T>(fn: () => Promise<T>): Promise<T> {
+    return driver.tx(fn);
+  },
+};
 
 export const nowIso = () => new Date().toISOString();
 

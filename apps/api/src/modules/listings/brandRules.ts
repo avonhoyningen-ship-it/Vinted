@@ -29,8 +29,14 @@ export function matchRule(item: RuleItem, rules: { keyword: string; value: strin
     .some((k) => have.has(k) || have.has(`${k}s`)))?.value ?? null;
 }
 
+/** The seller's brand and parcel rules (from the settings). */
+export async function loadRules() {
+  return { brand: parseRules(await getSetting("brand.rules")), parcel: parseRules(await getSetting("parcel.rules")) };
+}
+export type Rules = Awaited<ReturnType<typeof loadRules>>;
+
 /** Brand forced by a rule for this item (e.g. every T-shirt → "Graphic Tee"), else null. */
-export function ruleBrand(item: RuleItem, rules = parseRules(getSetting("brand.rules"))): string | null {
+export function ruleBrand(item: RuleItem, rules: Rules["brand"]): string | null {
   return matchRule(item, rules);
 }
 
@@ -45,22 +51,23 @@ export function parcelSize(v: string | null | undefined): ParcelSize | null {
 }
 
 /** Vinted parcel size for this item by rule (e.g. T-shirts → "Klein"), else null. */
-export function ruleParcel(item: RuleItem, rules = parseRules(getSetting("parcel.rules"))): ParcelSize | null {
+export function ruleParcel(item: RuleItem, rules: Rules["parcel"]): ParcelSize | null {
   return parcelSize(matchRule(item, rules));
 }
 
 /** Re-applies brand and parcel rules to every unsold item (drafts, archive, queue); returns how many changed. */
-export function applyBrandRules(): number {
-  const brandRules = parseRules(getSetting("brand.rules"));
-  const parcelRules = parseRules(getSetting("parcel.rules"));
-  const items = db.prepare("SELECT id, title, category, description, brand, parcel_size FROM items WHERE status <> 'sold'").all() as
-    { id: number; title: string; category: string | null; description: string; brand: string | null; parcel_size: string | null }[];
-  const update = db.prepare("UPDATE items SET brand = ?, parcel_size = ?, updated_at = ? WHERE id = ?");
+export async function applyBrandRules(): Promise<number> {
+  const rules = await loadRules();
+  const items = await db.all<{ id: number; title: string; category: string | null; description: string; brand: string | null; parcel_size: string | null }>(
+    "SELECT id, title, category, description, brand, parcel_size FROM items WHERE status <> 'sold'");
   let changed = 0;
   for (const it of items) {
-    const brand = ruleBrand(it, brandRules) ?? it.brand;
-    const parcel = ruleParcel(it, parcelRules) ?? it.parcel_size;
-    if (brand !== it.brand || parcel !== it.parcel_size) { update.run(brand, parcel, nowIso(), it.id); changed++; }
+    const brand = ruleBrand(it, rules.brand) ?? it.brand;
+    const parcel = ruleParcel(it, rules.parcel) ?? it.parcel_size;
+    if (brand !== it.brand || parcel !== it.parcel_size) {
+      await db.run("UPDATE items SET brand = ?, parcel_size = ?, updated_at = ? WHERE id = ?", [brand, parcel, nowIso(), it.id]);
+      changed++;
+    }
   }
   return changed;
 }

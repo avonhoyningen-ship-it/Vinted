@@ -11,52 +11,52 @@ automationsRouter.get("/meta", (_req, res) => {
   res.json({ triggers: TRIGGERS, actions: ACTIONS, placeholders: PLACEHOLDERS });
 });
 
-automationsRouter.get("/rules", h((_req, res) => {
-  const rules = db.prepare("SELECT * FROM automation_rules ORDER BY created_at DESC").all() as unknown as RuleRow[];
-  const stats = db.prepare("SELECT rule_id, status, COUNT(*) n FROM scheduled_actions GROUP BY rule_id, status").all() as { rule_id: number; status: string; n: number }[];
+automationsRouter.get("/rules", h(async (_req, res) => {
+  const rules = await db.all<RuleRow>("SELECT * FROM automation_rules ORDER BY created_at DESC");
+  const stats = await db.all<{ rule_id: number; status: string; n: number }>("SELECT rule_id, status, COUNT(*) n FROM scheduled_actions GROUP BY rule_id, status");
   res.json(rules.map((r) => ({
     ...ruleToApi(r),
-    stats: Object.fromEntries(stats.filter((s) => s.rule_id === r.id).map((s) => [s.status, s.n])),
+    stats: Object.fromEntries(stats.filter((s) => s.rule_id === r.id).map((s) => [s.status, Number(s.n)])),
   })));
 }));
 
-automationsRouter.post("/rules", h((req, res) => {
-  res.status(201).json(ruleToApi(saveRule(ruleInput.parse(req.body))));
+automationsRouter.post("/rules", h(async (req, res) => {
+  res.status(201).json(ruleToApi(await saveRule(ruleInput.parse(req.body))));
 }));
 
-automationsRouter.put("/rules/:id", h((req, res) => {
-  res.json(ruleToApi(saveRule(ruleInput.parse(req.body), idParam(req))));
+automationsRouter.put("/rules/:id", h(async (req, res) => {
+  res.json(ruleToApi(await saveRule(ruleInput.parse(req.body), idParam(req))));
 }));
 
-automationsRouter.post("/rules/:id/toggle", h((req, res) => {
-  const r = getRule(idParam(req));
-  db.prepare("UPDATE automation_rules SET enabled = ? WHERE id = ?").run(r.enabled ? 0 : 1, r.id);
-  if (r.enabled) db.prepare("UPDATE scheduled_actions SET status = 'cancelled' WHERE rule_id = ? AND status = 'pending'").run(r.id);
-  res.json(ruleToApi(getRule(r.id)));
+automationsRouter.post("/rules/:id/toggle", h(async (req, res) => {
+  const r = await getRule(idParam(req));
+  await db.run("UPDATE automation_rules SET enabled = ? WHERE id = ?", [r.enabled ? 0 : 1, r.id]);
+  if (r.enabled) await db.run("UPDATE scheduled_actions SET status = 'cancelled' WHERE rule_id = ? AND status = 'pending'", [r.id]);
+  res.json(ruleToApi(await getRule(r.id)));
 }));
 
-automationsRouter.delete("/rules/:id", h((req, res) => {
+automationsRouter.delete("/rules/:id", h(async (req, res) => {
   const id = idParam(req);
-  getRule(id);
-  db.prepare("UPDATE scheduled_actions SET status = 'cancelled' WHERE rule_id = ? AND status = 'pending'").run(id);
-  db.prepare("DELETE FROM automation_rules WHERE id = ?").run(id);
+  await getRule(id);
+  await db.run("UPDATE scheduled_actions SET status = 'cancelled' WHERE rule_id = ? AND status = 'pending'", [id]);
+  await db.run("DELETE FROM automation_rules WHERE id = ?", [id]);
   res.status(204).end();
 }));
 
 /** Renders a message template against a real listing (or sample data). */
-automationsRouter.post("/preview", h((req, res) => {
+automationsRouter.post("/preview", h(async (req, res) => {
   const { template, listingId, accountId } = z.object({
     template: z.string().max(1000), listingId: z.number().int().positive().optional(), accountId: z.number().int().positive().optional(),
   }).parse(req.body);
   const vars = accountId
-    ? templateVars(listingId ?? null, accountId, "max_mustermann", undefined)
+    ? await templateVars(listingId ?? null, accountId, "max_mustermann", undefined)
     : { artikelname: "Levi's 501 Jeans W32", preis: "25,00 €", neuer_preis: "22,50 €", marke: "Levi's", groesse: "W32", nutzer: "max_mustermann", account: "Mein Shop" };
   res.json({ text: renderTemplate(template, vars) });
 }));
 
-automationsRouter.get("/actions", h((req, res) => {
+automationsRouter.get("/actions", h(async (req, res) => {
   const status = typeof req.query.status === "string" ? req.query.status : null;
-  res.json(db.prepare(`
+  res.json(await db.all(`
     SELECT s.*, r.name AS rule_name, a.name AS account_name, l.title AS listing_title
     FROM scheduled_actions s
     LEFT JOIN automation_rules r ON r.id = s.rule_id
@@ -65,11 +65,11 @@ automationsRouter.get("/actions", h((req, res) => {
     WHERE (@status IS NULL OR s.status = @status)
     ORDER BY CASE s.status WHEN 'pending' THEN 0 ELSE 1 END, COALESCE(s.executed_at, s.run_at) DESC
     LIMIT 300
-  `).all({ status }));
+  `, { status }));
 }));
 
-automationsRouter.post("/actions/:id/cancel", h((req, res) => {
-  const r = db.prepare("UPDATE scheduled_actions SET status = 'cancelled' WHERE id = ? AND status = 'pending'").run(idParam(req));
-  if (!r.changes) throw new HttpError(409, "Aktion ist nicht mehr ausstehend");
+automationsRouter.post("/actions/:id/cancel", h(async (req, res) => {
+  const changes = await db.run("UPDATE scheduled_actions SET status = 'cancelled' WHERE id = ? AND status = 'pending'", [idParam(req)]);
+  if (!changes) throw new HttpError(409, "Aktion ist nicht mehr ausstehend");
   res.status(204).end();
 }));

@@ -3,7 +3,7 @@
  * mostly mechanical change). Money is stored as integer cents, timestamps as
  * ISO-8601 UTC strings.
  */
-import type { DB } from "./index.js";
+import type { SqliteDB as DB } from "./sqlite.js";
 
 const NOW = "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
 
@@ -330,5 +330,21 @@ UPDATE items SET status = CASE WHEN EXISTS (SELECT 1 FROM listings l WHERE l.ite
     name: "item_later",
     // Drafts parked under "Später" (not shown under "Entwürfe").
     sql: `ALTER TABLE items ADD COLUMN later INTEGER NOT NULL DEFAULT 0;`,
+  },
+  {
+    id: 7,
+    name: "settings_per_user",
+    // Same shape as the cloud schema: settings belong to a user ("local" on this PC).
+    sql: `
+CREATE TABLE settings_new (
+  user_id TEXT NOT NULL DEFAULT 'local',
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY (user_id, key)
+);
+INSERT INTO settings_new (user_id, key, value) SELECT 'local', key, value FROM settings;
+DROP TABLE settings;
+ALTER TABLE settings_new RENAME TO settings;
+`,
   },
 ];

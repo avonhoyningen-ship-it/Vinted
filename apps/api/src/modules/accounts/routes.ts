@@ -12,12 +12,12 @@ accountsRouter.get("/domains", (_req, res) => {
   res.json(VINTED_DOMAINS);
 });
 
-accountsRouter.get("/", h((_req, res) => {
-  res.json(listAccounts().map(toPublic));
+accountsRouter.get("/", h(async (_req, res) => {
+  res.json((await listAccounts()).map(toPublic));
 }));
 
 accountsRouter.post("/", h(async (req, res) => {
-  const account = createAccount(accountInput.parse(req.body));
+  const account = await createAccount(accountInput.parse(req.body));
   let sync = null;
   let error: string | null = null;
   if (account.session_encrypted) {
@@ -27,27 +27,27 @@ accountsRouter.post("/", h(async (req, res) => {
       error = (e as Error).message;
     }
   }
-  res.status(201).json({ account: toPublic(getAccount(account.id)), sync, error });
+  res.status(201).json({ account: toPublic(await getAccount(account.id)), sync, error });
 }));
 
-accountsRouter.get("/:id", h((req, res) => {
+accountsRouter.get("/:id", h(async (req, res) => {
   const id = idParam(req);
-  const account = toPublic(getAccount(id));
-  const listings = db.prepare(`
+  const account = toPublic(await getAccount(id));
+  const listings = await db.all(`
     SELECT l.*, (SELECT file_name FROM item_photos p WHERE p.item_id = l.item_id ORDER BY position, id LIMIT 1) AS cover_photo
     FROM listings l WHERE l.account_id = ? AND l.status = 'active' ORDER BY l.listed_at DESC
-  `).all(id);
-  const recentSales = db.prepare("SELECT * FROM sales WHERE account_id = ? ORDER BY sold_at DESC LIMIT 20").all(id);
-  const recentEvents = db.prepare("SELECT * FROM vinted_events WHERE account_id = ? ORDER BY occurred_at DESC LIMIT 30").all(id);
-  const totals = db.prepare("SELECT COUNT(*) sales, COALESCE(SUM(price_cents), 0) revenue_cents FROM sales WHERE account_id = ?").get(id);
-  const queue = db.prepare("SELECT COUNT(*) c FROM publish_queue WHERE account_id = ? AND status = 'pending'").get(id) as { c: number };
-  res.json({ account, listings, recentSales, recentEvents, totals, queuedCount: queue.c });
+  `, [id]);
+  const recentSales = await db.all("SELECT * FROM sales WHERE account_id = ? ORDER BY sold_at DESC LIMIT 20", [id]);
+  const recentEvents = await db.all("SELECT * FROM vinted_events WHERE account_id = ? ORDER BY occurred_at DESC LIMIT 30", [id]);
+  const totals = await db.get("SELECT COUNT(*) sales, COALESCE(SUM(price_cents), 0) revenue_cents FROM sales WHERE account_id = ?", [id]);
+  const queue = await db.get<{ c: number }>("SELECT COUNT(*) c FROM publish_queue WHERE account_id = ? AND status = 'pending'", [id]);
+  res.json({ account, listings, recentSales, recentEvents, totals, queuedCount: Number(queue?.c ?? 0) });
 }));
 
 accountsRouter.patch("/:id", h(async (req, res) => {
   const id = idParam(req);
   const patch = accountPatch.parse(req.body);
-  updateAccount(id, patch);
+  await updateAccount(id, patch);
   let error: string | null = null;
   if (patch.sessionToken || patch.refreshToken) {
     try {
@@ -56,23 +56,23 @@ accountsRouter.patch("/:id", h(async (req, res) => {
       error = (e as Error).message;
     }
   }
-  res.json({ account: toPublic(getAccount(id)), error });
+  res.json({ account: toPublic(await getAccount(id)), error });
 }));
 
 /** Verifies the session and syncs listings, sales, favourites and messages. */
 accountsRouter.post("/:id/sync", h(async (req, res) => {
   const id = idParam(req);
   const result = await syncAccount(id);
-  res.json({ account: toPublic(getAccount(id)), result });
+  res.json({ account: toPublic(await getAccount(id)), result });
 }));
 
-accountsRouter.post("/:id/disconnect", h((req, res) => {
+accountsRouter.post("/:id/disconnect", h(async (req, res) => {
   const id = idParam(req);
-  disconnectAccount(id);
-  res.json(toPublic(getAccount(id)));
+  await disconnectAccount(id);
+  res.json(toPublic(await getAccount(id)));
 }));
 
-accountsRouter.delete("/:id", h((req, res) => {
-  deleteAccount(idParam(req));
+accountsRouter.delete("/:id", h(async (req, res) => {
+  await deleteAccount(idParam(req));
   res.status(204).end();
 }));

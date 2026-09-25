@@ -11,7 +11,7 @@ const app = createApp();
 
 /** Injects a fake Vinted event and syncs the account (like the poller would). */
 async function simulate(accountId: number, type: "sale" | "favourite" | "message", text?: string) {
-  const acc = db.prepare("SELECT vinted_user_id FROM accounts WHERE id = ?").get(accountId) as { vinted_user_id: string };
+  const acc = (await db.get("SELECT vinted_user_id FROM accounts WHERE id = ?", [accountId])) as { vinted_user_id: string };
   mockInject(acc.vinted_user_id, type, { text });
   return request(app).post(`/api/accounts/${accountId}/sync`);
 }
@@ -41,7 +41,7 @@ describe("end-to-end (mock mode)", () => {
     const res = await request(app).get("/api/accounts");
     expect(JSON.stringify(res.body)).not.toContain("token-account-a");
     expect(res.body[0].has_session).toBe(true);
-    const row = db.prepare("SELECT session_encrypted FROM accounts WHERE id = ?").get(accountA) as { session_encrypted: string };
+    const row = (await db.get("SELECT session_encrypted FROM accounts WHERE id = ?", [accountA])) as { session_encrypted: string };
     expect(row.session_encrypted.startsWith("v1:")).toBe(true);
   });
 
@@ -73,10 +73,10 @@ describe("end-to-end (mock mode)", () => {
     expect(sent[0]!.text).toMatch(/^Danke fürs Merken, .+! .+ kostet \d+,\d\d\s€/);
 
     // Same user favouriting again → skipped by the frequency limit.
-    const fav = db.prepare("SELECT vinted_user_id FROM vinted_events WHERE type = 'favourite' LIMIT 1").get() as { vinted_user_id: string };
+    const fav = (await db.get("SELECT vinted_user_id FROM vinted_events WHERE type = 'favourite' LIMIT 1")) as { vinted_user_id: string };
     const { ingestEvent } = await import("../src/modules/automations/engine.js");
-    ingestEvent({ accountId: accountA, type: "favourite", externalId: "dup-1", listingId: null, userId: fav.vinted_user_id, username: "x", payload: {}, occurredAt: new Date().toISOString() });
-    const skipped = db.prepare("SELECT COUNT(*) c FROM scheduled_actions WHERE status = 'skipped'").get() as { c: number };
+    await ingestEvent({ accountId: accountA, type: "favourite", externalId: "dup-1", listingId: null, userId: fav.vinted_user_id, username: "x", payload: {}, occurredAt: new Date().toISOString() });
+    const skipped = (await db.get("SELECT COUNT(*) c FROM scheduled_actions WHERE status = 'skipped'")) as { c: number };
     expect(skipped.c).toBe(1);
   });
 
@@ -87,7 +87,7 @@ describe("end-to-end (mock mode)", () => {
     });
     await simulate(accountA, "message", "Ist das noch da?");
     await simulate(accountA, "message", "Wie sind die Maße?");
-    const actions = db.prepare("SELECT COUNT(*) c FROM scheduled_actions s JOIN automation_rules r ON r.id = s.rule_id WHERE r.name = 'Maße'").get() as { c: number };
+    const actions = (await db.get("SELECT COUNT(*) c FROM scheduled_actions s JOIN automation_rules r ON r.id = s.rule_id WHERE r.name = 'Maße'")) as { c: number };
     expect(actions.c).toBe(1);
   });
 
@@ -179,17 +179,17 @@ describe("end-to-end (mock mode)", () => {
   });
 
   it("drops stale listing prices via rule", async () => {
-    db.prepare("UPDATE listings SET listed_at = '2020-01-01T00:00:00.000Z' WHERE account_id = ? AND status = 'active'").run(accountA);
+    (await db.run("UPDATE listings SET listed_at = '2020-01-01T00:00:00.000Z' WHERE account_id = ? AND status = 'active'", [accountA]));
     const rule = await request(app).post("/api/automations/rules").send({
       name: "Preis -10%", triggerType: "listing_stale", triggerConfig: { days: 14 }, actionType: "reduce_price",
       actionConfig: { percent: 10, minPriceCents: 500 },
     });
     expect(rule.status).toBe(201);
     const { scheduleStaleListingActions } = await import("../src/modules/automations/engine.js");
-    expect(scheduleStaleListingActions()).toBe(2);
-    expect(scheduleStaleListingActions()).toBe(0);
+    expect(await scheduleStaleListingActions()).toBe(2);
+    expect(await scheduleStaleListingActions()).toBe(0);
     await runDueActions();
-    const changes = db.prepare("SELECT COUNT(*) c FROM listing_price_changes").get() as { c: number };
+    const changes = (await db.get("SELECT COUNT(*) c FROM listing_price_changes")) as { c: number };
     expect(changes.c).toBeGreaterThanOrEqual(2);
   });
 

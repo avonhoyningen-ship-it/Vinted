@@ -6,7 +6,7 @@ import { HttpError } from "../../lib/http.js";
 import { photoPath } from "../../storage/photos.js";
 import { getAccount } from "../accounts/repo.js";
 import { createListing, getItem, listPhotos } from "../archive/repo.js";
-import { parcelSize, parseMeasurements, ruleBrand, ruleParcel, type ParcelSize } from "../listings/brandRules.js";
+import { loadRules, parcelSize, parseMeasurements, ruleBrand, ruleParcel, type ParcelSize } from "../listings/brandRules.js";
 import { confirmPrice } from "../pricing/engine.js";
 
 /**
@@ -273,9 +273,10 @@ async function pickParcel(page: Page, size: ParcelSize): Promise<boolean> {
 
 /** Opens the sell page in the Vinted-Chrome and fills what can be filled. */
 async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missing: string[]; fields: string[] }> {
-  const item = getItem(job.itemId);
-  const account = getAccount(job.accountId);
-  const photos = listPhotos(item.id).slice(0, 20);
+  const item = await getItem(job.itemId);
+  const account = await getAccount(job.accountId);
+  const photos = (await listPhotos(item.id)).slice(0, 20);
+  const rules = await loadRules();
   const b = await connect();
   const context = b.contexts()[0] ?? (await b.newContext());
   const page = await context.newPage();
@@ -329,7 +330,7 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
   if (!price) missing.push("Preis");
 
   // Dropdowns and measurements. Each one is best effort – the seller checks before uploading.
-  const brand = ruleBrand(item) ?? item.brand;
+  const brand = ruleBrand(item, rules.brand) ?? item.brand;
   const dropdowns: [string, () => Promise<boolean>, boolean][] = [
     ["Kategorie", () => pickCategory(page, item.category ?? ""), !!item.category],
     ["Marke", () => pickDropdown(page, /^marke$/i, [brand ?? ""]), !!brand],
@@ -357,7 +358,7 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
     if (await fill(page, candidates, String(value), 3000).catch(() => false)) filled.push(label);
   }
   // Material stays empty on purpose. Parcel size: rules first (T-shirts small, pullovers medium), then the AI's guess.
-  const parcel = ruleParcel(item) ?? parcelSize(item.parcel_size);
+  const parcel = ruleParcel(item, rules.parcel) ?? parcelSize(item.parcel_size);
   if (parcel) {
     if (await pickParcel(page, parcel).catch(() => false)) filled.push(`Paketgröße ${parcel}`);
     else missing.push("Paketgröße");
@@ -380,14 +381,14 @@ async function waitForPublish(page: Page, tab: AssistTab): Promise<string | null
   return null;
 }
 
-function linkListing(job: Job, url: string) {
-  const item = getItem(job.itemId);
+async function linkListing(job: Job, url: string) {
+  const item = await getItem(job.itemId);
   const vintedItemId = url.match(/\/items\/(\d+)/)?.[1] ?? null;
-  const existing = vintedItemId && db.prepare("SELECT id FROM listings WHERE account_id = ? AND vinted_item_id = ?").get(job.accountId, vintedItemId);
+  const existing = vintedItemId && (await db.get("SELECT id FROM listings WHERE account_id = ? AND vinted_item_id = ?", [job.accountId, vintedItemId]));
   if (existing) return;
   const price = item.price_confirmed && item.price_cents ? item.price_cents : item.price_suggested_cents ?? item.price_cents;
-  if (price && !item.price_confirmed) confirmPrice(item.id, price, "confirmed");
-  createListing({
+  if (price && !item.price_confirmed) await confirmPrice(item.id, price, "confirmed");
+  await createListing({
     item_id: item.id, account_id: job.accountId, vinted_item_id: vintedItemId, url, title: item.title,
     description: item.description, price_cents: price ?? null, currency: item.currency, listed_at: nowIso(),
   });
@@ -406,7 +407,7 @@ async function watch(job: Job, tab: AssistTab, page: Page) {
   try {
     const url = await waitForPublish(page, tab);
     if (url) {
-      linkListing(job, url);
+      await linkListing(job, url);
       Object.assign(tab, { state: "done", url, message: null });
       done.push({ itemId: tab.itemId, title: tab.title, url });
       setTimeout(() => void page.close().catch(() => {}), 2000);
@@ -457,10 +458,12 @@ async function prepareAll() {
 
 export async function startAssist(itemIds: number[], accountId: number) {
   await connect(); // fail fast with a clear message
-  getAccount(accountId);
+  await getAccount(accountId);
+  const titles = new Map<number, string>();
   for (const id of itemIds) {
-    const item = getItem(id);
-    if (!listPhotos(id).length) throw new HttpError(400, `„${item.title}“ hat keine Fotos`);
+    const item = await getItem(id);
+    titles.set(id, item.title);
+    if (!(await listPhotos(id)).length) throw new HttpError(400, `„${item.title}“ hat keine Fotos`);
   }
   if (!tabs.some((t) => ["queued", "preparing", "ready"].includes(t.state))) {
     tabs = [];
@@ -469,7 +472,7 @@ export async function startAssist(itemIds: number[], accountId: number) {
   for (const itemId of itemIds) {
     if (tabs.some((t) => t.itemId === itemId && ["queued", "preparing", "ready"].includes(t.state))) continue;
     tabs = tabs.filter((t) => t.itemId !== itemId);
-    tabs.push({ itemId, title: getItem(itemId).title, state: "queued", filled: [], missing: [], message: null, url: null, fields: [] });
+    tabs.push({ itemId, title: titles.get(itemId)!, state: "queued", filled: [], missing: [], message: null, url: null, fields: [] });
     queue.push({ itemId, accountId });
   }
   publish();

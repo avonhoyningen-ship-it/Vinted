@@ -1,8 +1,9 @@
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
-import { db } from "../src/db/index.js";
+import { db, getDriver } from "../src/db/index.js";
 import { removeDemoData } from "../src/db/migrations.js";
+import type { SqliteDB } from "../src/db/sqlite.js";
 import { liveAdapter, resetLiveSessions } from "../src/vinted/liveAdapter.js";
 import { vintedClient, VintedError } from "../src/vinted/vintedClient.js";
 import { mockAdapter } from "./support/mockAdapter.js";
@@ -114,7 +115,7 @@ describe("connecting an account (real client)", () => {
   }, 30_000);
 
   it("does not pretend to publish: the queue is blocked with a clear message", async () => {
-    const acc = db.prepare("SELECT id FROM accounts WHERE status = 'connected' LIMIT 1").get() as { id: number };
+    const acc = (await db.get("SELECT id FROM accounts WHERE status = 'connected' LIMIT 1")) as { id: number };
     const item = (await request(app).post("/api/archive").send({ title: "Test", price_cents: 1000 })).body;
     const res = await request(app).post("/api/listings/queue").send({ itemIds: [item.id], accountId: Number(acc.id) });
     expect(res.status).toBe(409);
@@ -133,20 +134,20 @@ describe("connecting an account (real client)", () => {
 });
 
 describe("demo data cleanup", () => {
-  it("removes demo accounts and seed items but keeps the user's own items", () => {
-    const acc = Number(db.prepare("INSERT INTO accounts (name, domain, vinted_user_id, username, status) VALUES ('Demo', 'vinted.de', 'mock-c9e3aaaa', 'reseller_c9e3', 'connected')").run().lastInsertRowid);
-    const seed = Number(db.prepare("INSERT INTO items (title, status) VALUES ('Levi''s 501 Jeans W32 L32', 'active')").run().lastInsertRowid);
-    const own = Number(db.prepare("INSERT INTO items (title, status) VALUES ('Meine Jacke', 'active')").run().lastInsertRowid);
-    db.prepare("INSERT INTO item_photos (item_id, file_name, mime_type, sha256) VALUES (?, 'x.jpg', 'image/jpeg', 'abc')").run(own);
+  it("removes demo accounts and seed items but keeps the user's own items", async () => {
+    const acc = (await db.insert("INSERT INTO accounts (name, domain, vinted_user_id, username, status) VALUES ('Demo', 'vinted.de', 'mock-c9e3aaaa', 'reseller_c9e3', 'connected')"));
+    const seed = (await db.insert("INSERT INTO items (title, status) VALUES ('Levi''s 501 Jeans W32 L32', 'active')"));
+    const own = (await db.insert("INSERT INTO items (title, status) VALUES ('Meine Jacke', 'active')"));
+    (await db.run("INSERT INTO item_photos (item_id, file_name, mime_type, sha256) VALUES (?, 'x.jpg', 'image/jpeg', 'abc')", [own]));
     for (const item of [seed, own]) {
-      const l = Number(db.prepare("INSERT INTO listings (item_id, account_id, vinted_item_id, title) VALUES (?, ?, ?, 't')").run(item, acc, `v${item}`).lastInsertRowid);
-      db.prepare("INSERT INTO sales (account_id, listing_id, item_id, external_id, title, price_cents, sold_at) VALUES (?, ?, ?, ?, 't', 100, '2026-01-01')").run(acc, l, item, `s${item}`);
+      const l = (await db.insert("INSERT INTO listings (item_id, account_id, vinted_item_id, title) VALUES (?, ?, ?, 't')", [item, acc, `v${item}`]));
+      (await db.run("INSERT INTO sales (account_id, listing_id, item_id, external_id, title, price_cents, sold_at) VALUES (?, ?, ?, ?, 't', 100, '2026-01-01')", [acc, l, item, `s${item}`]));
     }
 
-    expect(removeDemoData(db)).toEqual({ accounts: 1, items: 1 });
-    expect(db.prepare("SELECT COUNT(*) c FROM accounts WHERE vinted_user_id LIKE 'mock-%'").get()).toMatchObject({ c: 0 });
-    expect(db.prepare("SELECT id FROM items WHERE id = ?").get(seed)).toBeUndefined();
-    expect(db.prepare("SELECT status FROM items WHERE id = ?").get(own)).toMatchObject({ status: "draft" });
-    expect(db.prepare("SELECT COUNT(*) c FROM sales WHERE account_id = ?").get(acc)).toMatchObject({ c: 0 });
+    expect(removeDemoData(getDriver().raw as SqliteDB)).toEqual({ accounts: 1, items: 1 });
+    expect((await db.get("SELECT COUNT(*) c FROM accounts WHERE vinted_user_id LIKE 'mock-%'"))).toMatchObject({ c: 0 });
+    expect((await db.get("SELECT id FROM items WHERE id = ?", [seed]))).toBeUndefined();
+    expect((await db.get("SELECT status FROM items WHERE id = ?", [own]))).toMatchObject({ status: "draft" });
+    expect((await db.get("SELECT COUNT(*) c FROM sales WHERE account_id = ?", [acc]))).toMatchObject({ c: 0 });
   });
 });

@@ -118,7 +118,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
 
   it("fills the sell page, waits for the seller's upload click and links the listing", async () => {
     const { db } = await import("../src/db/index.js");
-    const acc = Number(db.prepare("INSERT INTO accounts (name, domain, status) VALUES ('Vinted 1', 'vinted.de', 'connected')").run().lastInsertRowid);
+    const acc = (await db.insert("INSERT INTO accounts (name, domain, status) VALUES ('Vinted 1', 'vinted.de', 'connected')"));
     const photo = (c: string) => sharp({ create: { width: 40, height: 50, channels: 3, background: c } }).jpeg().toBuffer();
     const draft = (await request(app).post("/api/listings/drafts")
       .attach("photos", await photo("#a33"), "1.jpg").attach("photos", await photo("#3a3"), "2.jpg")
@@ -171,7 +171,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
 
   it("prepares several items in their own tabs; each upload is linked separately", async () => {
     const { db } = await import("../src/db/index.js");
-    const acc = Number(db.prepare("INSERT INTO accounts (name, domain, status) VALUES ('Vinted 2', 'vinted.de', 'connected')").run().lastInsertRowid);
+    const acc = (await db.insert("INSERT INTO accounts (name, domain, status) VALUES ('Vinted 2', 'vinted.de', 'connected')"));
     const photo = (c: string) => sharp({ create: { width: 40, height: 50, channels: 3, background: c } }).jpeg().toBuffer();
     const make = async (data: object) => (await request(app).post("/api/listings/drafts")
       .attach("photos", await photo("#33a"), "1.jpg").field("data", JSON.stringify(data))).body.item;

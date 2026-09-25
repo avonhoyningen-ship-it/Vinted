@@ -51,39 +51,39 @@ export const accountInput = z.object({
 });
 export const accountPatch = accountInput.partial();
 
-export function listAccounts(): AccountRow[] {
-  return db.prepare("SELECT * FROM accounts ORDER BY name").all() as unknown as AccountRow[];
+export function listAccounts(): Promise<AccountRow[]> {
+  return db.all<AccountRow>("SELECT * FROM accounts ORDER BY name");
 }
 
-export function getAccount(id: number): AccountRow {
-  const a = db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as unknown as AccountRow | undefined;
+export async function getAccount(id: number): Promise<AccountRow> {
+  const a = await db.get<AccountRow>("SELECT * FROM accounts WHERE id = ?", [id]);
   if (!a) throw notFound("Account");
   return a;
 }
 
-export function createAccount(input: z.infer<typeof accountInput>): AccountRow {
-  const r = db.prepare(`
+export async function createAccount(input: z.infer<typeof accountInput>): Promise<AccountRow> {
+  const id = await db.insert(`
     INSERT INTO accounts (name, domain, session_encrypted, refresh_encrypted, session_hint, publish_interval_minutes, polling_enabled)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `, [
     input.name, input.domain,
     input.sessionToken ? encrypt(input.sessionToken) : null,
     input.refreshToken ? encrypt(input.refreshToken) : null,
     input.sessionToken ? maskSecret(input.sessionToken) : null,
     input.publishIntervalMinutes ?? null,
     input.pollingEnabled === false ? 0 : 1,
-  );
-  return getAccount(Number(r.lastInsertRowid));
+  ]);
+  return getAccount(id);
 }
 
-export function updateAccount(id: number, patch: z.infer<typeof accountPatch>): AccountRow {
-  const a = getAccount(id);
+export async function updateAccount(id: number, patch: z.infer<typeof accountPatch>): Promise<AccountRow> {
+  const a = await getAccount(id);
   const tokenChanged = patch.sessionToken !== undefined;
-  db.prepare(`
+  await db.run(`
     UPDATE accounts SET name = ?, domain = ?, session_encrypted = ?, refresh_encrypted = ?, session_hint = ?, publish_interval_minutes = ?,
       polling_enabled = ?, status = ?, updated_at = ?
     WHERE id = ?
-  `).run(
+  `, [
     patch.name ?? a.name,
     patch.domain ?? a.domain,
     tokenChanged ? encrypt(patch.sessionToken!) : a.session_encrypted,
@@ -94,29 +94,29 @@ export function updateAccount(id: number, patch: z.infer<typeof accountPatch>): 
     tokenChanged ? "pending" : a.status,
     nowIso(),
     id,
-  );
+  ]);
   return getAccount(id);
 }
 
 /** Removes the stored session. Listings, sales and archive data stay untouched. */
-export function disconnectAccount(id: number) {
-  getAccount(id);
-  db.prepare("UPDATE accounts SET session_encrypted = NULL, refresh_encrypted = NULL, session_hint = NULL, status = 'disconnected', updated_at = ? WHERE id = ?").run(nowIso(), id);
-  db.prepare("UPDATE publish_queue SET status = 'cancelled', updated_at = ? WHERE account_id = ? AND status = 'pending'").run(nowIso(), id);
-  db.prepare("UPDATE scheduled_actions SET status = 'cancelled' WHERE account_id = ? AND status = 'pending'").run(id);
+export async function disconnectAccount(id: number) {
+  await getAccount(id);
+  await db.run("UPDATE accounts SET session_encrypted = NULL, refresh_encrypted = NULL, session_hint = NULL, status = 'disconnected', updated_at = ? WHERE id = ?", [nowIso(), id]);
+  await db.run("UPDATE publish_queue SET status = 'cancelled', updated_at = ? WHERE account_id = ? AND status = 'pending'", [nowIso(), id]);
+  await db.run("UPDATE scheduled_actions SET status = 'cancelled' WHERE account_id = ? AND status = 'pending'", [id]);
 }
 
-export function deleteAccount(id: number) {
-  getAccount(id);
-  const used = db.prepare("SELECT COUNT(*) c FROM listings WHERE account_id = ?").get(id) as { c: number };
-  if (used.c > 0) {
+export async function deleteAccount(id: number) {
+  await getAccount(id);
+  const used = await db.get<{ c: number }>("SELECT COUNT(*) c FROM listings WHERE account_id = ?", [id]);
+  if (Number(used?.c) > 0) {
     throw new HttpError(409, "Account hat Listings im Archiv und kann nur getrennt, nicht gelöscht werden (kein Datenverlust).");
   }
-  db.transaction(() => {
-    db.prepare("DELETE FROM publish_queue WHERE account_id = ?").run(id);
-    db.prepare("DELETE FROM sales WHERE account_id = ?").run(id);
-    db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
-  })();
+  await db.tx(async () => {
+    await db.run("DELETE FROM publish_queue WHERE account_id = ?", [id]);
+    await db.run("DELETE FROM sales WHERE account_id = ?", [id]);
+    await db.run("DELETE FROM accounts WHERE id = ?", [id]);
+  });
 }
 
 export function sessionFor(a: AccountRow): VintedSession {
@@ -127,13 +127,12 @@ export function sessionFor(a: AccountRow): VintedSession {
     domain: a.domain,
     vintedUserId: a.vinted_user_id,
     // Vinted renewed the tokens (same user): store them encrypted.
-    onTokens: (access, refresh) => {
-      db.prepare("UPDATE accounts SET session_encrypted = ?, refresh_encrypted = COALESCE(?, refresh_encrypted), session_hint = ?, updated_at = ? WHERE id = ?")
-        .run(encrypt(access), refresh ? encrypt(refresh) : null, maskSecret(access), nowIso(), a.id);
-    },
+    onTokens: (access, refresh) =>
+      db.run("UPDATE accounts SET session_encrypted = ?, refresh_encrypted = COALESCE(?, refresh_encrypted), session_hint = ?, updated_at = ? WHERE id = ?",
+        [encrypt(access), refresh ? encrypt(refresh) : null, maskSecret(access), nowIso(), a.id]).then(() => undefined),
   };
 }
 
-export function setAccountStatus(id: number, status: AccountRow["status"], error: string | null) {
-  db.prepare("UPDATE accounts SET status = ?, last_error = ?, updated_at = ? WHERE id = ?").run(status, error, nowIso(), id);
+export async function setAccountStatus(id: number, status: AccountRow["status"], error: string | null) {
+  await db.run("UPDATE accounts SET status = ?, last_error = ?, updated_at = ? WHERE id = ?", [status, error, nowIso(), id]);
 }

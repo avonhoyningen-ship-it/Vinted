@@ -7,7 +7,7 @@ export interface VintedSession {
   /** Optional `refresh_token_web` cookie; lets the client pick up renewed access tokens. */
   refreshToken?: string | null;
   /** Called when Vinted hands out renewed tokens for the same user, so they can be stored. */
-  onTokens?: (accessToken: string, refreshToken: string | null) => void;
+  onTokens?: (accessToken: string, refreshToken: string | null) => void | Promise<void>;
 }
 
 export interface VintedProfile {

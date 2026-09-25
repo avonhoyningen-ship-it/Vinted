@@ -1,4 +1,3 @@
-import type { SQLInputValue } from "node:sqlite";
 import { z } from "zod";
 import { db, nowIso } from "../../db/index.js";
 import { HttpError, notFound } from "../../lib/http.js";
@@ -98,120 +97,121 @@ const ITEM_FIELDS = [
   "measurements", "parcel_size", "price_cents", "currency", "purchase_price_cents", "notes",
 ] as const;
 
-export function getItem(id: number): ItemRow {
-  const i = db.prepare("SELECT * FROM items WHERE id = ?").get(id) as unknown as ItemRow | undefined;
+export async function getItem(id: number): Promise<ItemRow> {
+  const i = await db.get<ItemRow>("SELECT * FROM items WHERE id = ?", [id]);
   if (!i) throw notFound("Artikel");
   return i;
 }
 
-export function createItem(input: Partial<ItemInput> & { title: string }, status: ItemRow["status"] = "draft"): ItemRow {
+export async function createItem(input: Partial<ItemInput> & { title: string }, status: ItemRow["status"] = "draft"): Promise<ItemRow> {
   const data = itemInput.parse(input);
   const cols = ITEM_FIELDS.filter((f) => data[f] !== undefined);
-  const r = db.prepare(`INSERT INTO items (${[...cols, "status"].join(", ")}) VALUES (${[...cols.map((c) => "@" + c), "@status"].join(", ")})`)
-    .run({ ...Object.fromEntries(cols.map((c) => [c, data[c] ?? null])), status });
-  return getItem(Number(r.lastInsertRowid));
-}
-
-export function updateItem(id: number, patch: z.infer<typeof itemPatch>): ItemRow {
-  getItem(id);
-  const fields = [...ITEM_FIELDS, "status"] as const;
-  const keys = fields.filter((k) => patch[k] !== undefined);
-  if (keys.length) {
-    db.prepare(`UPDATE items SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @updated_at WHERE id = @id`)
-      .run({ ...Object.fromEntries(keys.map((k) => [k, patch[k] ?? null])), updated_at: nowIso(), id });
-  }
-  if (patch.status === undefined) recomputeItemStatus(id);
+  const id = await db.insert(`INSERT INTO items (${[...cols, "status"].join(", ")}) VALUES (${[...cols.map((c) => "@" + c), "@status"].join(", ")})`,
+    { ...Object.fromEntries(cols.map((c) => [c, data[c] ?? null])), status });
   return getItem(id);
 }
 
-export function deleteItem(id: number) {
-  getItem(id);
-  const c = db.prepare("SELECT COUNT(*) c FROM listings WHERE item_id = ?").get(id) as { c: number };
-  if (c.c > 0) throw new HttpError(409, "Artikel war bereits eingestellt – statt Löschen bitte archivieren (Verlauf bleibt erhalten).");
-  db.prepare("DELETE FROM items WHERE id = ?").run(id);
+export async function updateItem(id: number, patch: z.infer<typeof itemPatch>): Promise<ItemRow> {
+  await getItem(id);
+  const fields = [...ITEM_FIELDS, "status"] as const;
+  const keys = fields.filter((k) => patch[k] !== undefined);
+  if (keys.length) {
+    await db.run(`UPDATE items SET ${keys.map((k) => `${k} = @${k}`).join(", ")}, updated_at = @updated_at WHERE id = @id`,
+      { ...Object.fromEntries(keys.map((k) => [k, patch[k] ?? null])), updated_at: nowIso(), id });
+  }
+  if (patch.status === undefined) await recomputeItemStatus(id);
+  return getItem(id);
+}
+
+export async function deleteItem(id: number) {
+  await getItem(id);
+  const c = await db.get<{ c: number }>("SELECT COUNT(*) c FROM listings WHERE item_id = ?", [id]);
+  if (Number(c?.c) > 0) throw new HttpError(409, "Artikel war bereits eingestellt – statt Löschen bitte archivieren (Verlauf bleibt erhalten).");
+  await db.run("DELETE FROM items WHERE id = ?", [id]);
 }
 
 // ---------- photos ----------
 
-export function listPhotos(itemId: number): PhotoRow[] {
-  return db.prepare("SELECT * FROM item_photos WHERE item_id = ? ORDER BY position, id").all(itemId) as unknown as PhotoRow[];
+export function listPhotos(itemId: number): Promise<PhotoRow[]> {
+  return db.all<PhotoRow>("SELECT * FROM item_photos WHERE item_id = ? ORDER BY position, id", [itemId]);
 }
 
-export function addPhoto(itemId: number, p: StoredPhoto, originalName: string | null): PhotoRow {
-  const existing = db.prepare("SELECT * FROM item_photos WHERE item_id = ? AND sha256 = ?").get(itemId, p.sha256) as unknown as PhotoRow | undefined;
+export async function addPhoto(itemId: number, p: StoredPhoto, originalName: string | null): Promise<PhotoRow> {
+  const existing = await db.get<PhotoRow>("SELECT * FROM item_photos WHERE item_id = ? AND sha256 = ?", [itemId, p.sha256]);
   if (existing) return existing;
-  const pos = (db.prepare("SELECT COALESCE(MAX(position), -1) + 1 p FROM item_photos WHERE item_id = ?").get(itemId) as { p: number }).p;
-  const r = db.prepare(`
+  const pos = Number((await db.get<{ p: number }>("SELECT COALESCE(MAX(position), -1) + 1 p FROM item_photos WHERE item_id = ?", [itemId]))!.p);
+  const id = await db.insert(`
     INSERT INTO item_photos (item_id, file_name, original_name, mime_type, width, height, size_bytes, sha256, position)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(itemId, p.fileName, originalName, p.mimeType, p.width, p.height, p.sizeBytes, p.sha256, pos);
-  return db.prepare("SELECT * FROM item_photos WHERE id = ?").get(r.lastInsertRowid) as unknown as PhotoRow;
+  `, [itemId, p.fileName, originalName, p.mimeType, p.width, p.height, p.sizeBytes, p.sha256, pos]);
+  return (await db.get<PhotoRow>("SELECT * FROM item_photos WHERE id = ?", [id]))!;
 }
 
 /** Points a photo row at a new file (e.g. after rotation), keeping its position. */
-export function replacePhotoFile(photoId: number, p: StoredPhoto) {
-  db.prepare("UPDATE item_photos SET file_name = ?, width = ?, height = ?, size_bytes = ?, sha256 = ? WHERE id = ?")
-    .run(p.fileName, p.width, p.height, p.sizeBytes, p.sha256, photoId);
+export async function replacePhotoFile(photoId: number, p: StoredPhoto) {
+  await db.run("UPDATE item_photos SET file_name = ?, width = ?, height = ?, size_bytes = ?, sha256 = ? WHERE id = ?",
+    [p.fileName, p.width, p.height, p.sizeBytes, p.sha256, photoId]);
 }
 
-export function deletePhoto(itemId: number, photoId: number) {
-  const r = db.prepare("DELETE FROM item_photos WHERE id = ? AND item_id = ?").run(photoId, itemId);
-  if (!r.changes) throw notFound("Foto");
+export async function deletePhoto(itemId: number, photoId: number) {
+  const changes = await db.run("DELETE FROM item_photos WHERE id = ? AND item_id = ?", [photoId, itemId]);
+  if (!changes) throw notFound("Foto");
 }
 
-export function reorderPhotos(itemId: number, ids: number[]) {
-  const stmt = db.prepare("UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?");
-  db.transaction(() => ids.forEach((id, i) => stmt.run(i, id, itemId)))();
+export async function reorderPhotos(itemId: number, ids: number[]) {
+  await db.tx(async () => {
+    for (const [i, id] of ids.entries()) await db.run("UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?", [i, id, itemId]);
+  });
 }
 
 // ---------- listings / history ----------
 
-export function getListing(id: number): ListingRow {
-  const l = db.prepare("SELECT * FROM listings WHERE id = ?").get(id) as unknown as ListingRow | undefined;
+export async function getListing(id: number): Promise<ListingRow> {
+  const l = await db.get<ListingRow>("SELECT * FROM listings WHERE id = ?", [id]);
   if (!l) throw notFound("Listing");
   return l;
 }
 
-export function createListing(data: {
+export async function createListing(data: {
   item_id: number; account_id: number; vinted_item_id?: string | null; url?: string | null; title: string;
   description: string; price_cents: number | null; currency: string; status?: ListingRow["status"];
   listed_at?: string; favourites?: number; views?: number;
-}): ListingRow {
-  const r = db.prepare(`
+}): Promise<ListingRow> {
+  const id = await db.insert(`
     INSERT INTO listings (item_id, account_id, vinted_item_id, url, title, description, price_cents, currency, status, listed_at, favourites, views)
     VALUES (@item_id, @account_id, @vinted_item_id, @url, @title, @description, @price_cents, @currency, @status, @listed_at, @favourites, @views)
-  `).run({
+  `, {
     vinted_item_id: null, url: null, status: "active", listed_at: nowIso(), favourites: 0, views: 0,
-    // Optional fields left undefined keep their defaults (SQLite can't bind undefined).
+    // Optional fields left undefined keep their defaults (undefined can't be bound).
     ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)),
   });
-  db.prepare("UPDATE items SET later = 0 WHERE id = ?").run(data.item_id); // uploaded → no longer "Später"
-  recomputeItemStatus(data.item_id);
-  return getListing(Number(r.lastInsertRowid));
+  await db.run("UPDATE items SET later = 0 WHERE id = ?", [data.item_id]); // uploaded → no longer "Später"
+  await recomputeItemStatus(data.item_id);
+  return getListing(id);
 }
 
-export function markListingSold(listingId: number, soldAt: string, priceCents: number | null) {
-  db.prepare("UPDATE listings SET status = 'sold', sold_at = ?, sold_price_cents = ?, ended_at = ?, updated_at = ? WHERE id = ?")
-    .run(soldAt, priceCents, soldAt, nowIso(), listingId);
-  const itemId = getListing(listingId).item_id;
-  recomputeItemStatus(itemId);
-  if (priceCents) recordPriceExample(itemId, priceCents, "sold"); // real sale prices teach the most
+export async function markListingSold(listingId: number, soldAt: string, priceCents: number | null) {
+  await db.run("UPDATE listings SET status = 'sold', sold_at = ?, sold_price_cents = ?, ended_at = ?, updated_at = ? WHERE id = ?",
+    [soldAt, priceCents, soldAt, nowIso(), listingId]);
+  const itemId = (await getListing(listingId)).item_id;
+  await recomputeItemStatus(itemId);
+  if (priceCents) await recordPriceExample(itemId, priceCents, "sold"); // real sale prices teach the most
 }
 
-export function endListing(listingId: number, status: "removed" | "expired" | "hidden") {
-  db.prepare("UPDATE listings SET status = ?, ended_at = COALESCE(ended_at, ?), updated_at = ? WHERE id = ?").run(status, nowIso(), nowIso(), listingId);
-  recomputeItemStatus(getListing(listingId).item_id);
+export async function endListing(listingId: number, status: "removed" | "expired" | "hidden") {
+  await db.run("UPDATE listings SET status = ?, ended_at = COALESCE(ended_at, ?), updated_at = ? WHERE id = ?", [status, nowIso(), nowIso(), listingId]);
+  await recomputeItemStatus((await getListing(listingId)).item_id);
 }
 
-export function setListingPrice(listingId: number, newPriceCents: number, reason: string) {
-  const l = getListing(listingId);
-  db.transaction(() => {
-    db.prepare("INSERT INTO listing_price_changes (listing_id, old_price_cents, new_price_cents, reason) VALUES (?, ?, ?, ?)")
-      .run(listingId, l.price_cents, newPriceCents, reason);
-    db.prepare("UPDATE listings SET price_cents = ?, last_price_drop_at = CASE WHEN ? < COALESCE(price_cents, 0) THEN ? ELSE last_price_drop_at END, updated_at = ? WHERE id = ?")
-      .run(newPriceCents, newPriceCents, nowIso(), nowIso(), listingId);
-    db.prepare("UPDATE items SET price_cents = ?, updated_at = ? WHERE id = ?").run(newPriceCents, nowIso(), l.item_id);
-  })();
+export async function setListingPrice(listingId: number, newPriceCents: number, reason: string) {
+  const l = await getListing(listingId);
+  await db.tx(async () => {
+    await db.run("INSERT INTO listing_price_changes (listing_id, old_price_cents, new_price_cents, reason) VALUES (?, ?, ?, ?)",
+      [listingId, l.price_cents, newPriceCents, reason]);
+    await db.run("UPDATE listings SET price_cents = ?, last_price_drop_at = CASE WHEN ? < COALESCE(price_cents, 0) THEN ? ELSE last_price_drop_at END, updated_at = ? WHERE id = ?",
+      [newPriceCents, newPriceCents, nowIso(), nowIso(), listingId]);
+    await db.run("UPDATE items SET price_cents = ?, updated_at = ? WHERE id = ?", [newPriceCents, nowIso(), l.item_id]);
+  });
 }
 
 /**
@@ -221,25 +221,26 @@ export function setListingPrice(listingId: number, newPriceCents: number, reason
  * listed before but nothing live → archived, never listed → draft.
  * A manual "archived" status on a never-listed item is preserved.
  */
-export function recomputeItemStatus(itemId: number) {
-  const item = db.prepare("SELECT status FROM items WHERE id = ?").get(itemId) as { status: string } | undefined;
+export async function recomputeItemStatus(itemId: number) {
+  const item = await db.get<{ status: string }>("SELECT status FROM items WHERE id = ?", [itemId]);
   if (!item) return;
-  const stats = db.prepare(`
+  const stats = (await db.get<{ total: number; active: number | null; latest: string | null }>(`
     SELECT COUNT(*) total,
-      SUM(status = 'active') active,
+      SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) active,
       (SELECT status FROM listings WHERE item_id = @id ORDER BY listed_at DESC, id DESC LIMIT 1) latest
     FROM listings WHERE item_id = @id
-  `).get({ id: itemId }) as { total: number; active: number | null; latest: string | null };
-  const queued = (db.prepare("SELECT COUNT(*) c FROM publish_queue WHERE item_id = ? AND status IN ('pending','processing')").get(itemId) as { c: number }).c;
+  `, { id: itemId }))!;
+  const queued = Number((await db.get<{ c: number }>("SELECT COUNT(*) c FROM publish_queue WHERE item_id = ? AND status IN ('pending','processing')", [itemId]))!.c);
+  const total = Number(stats.total);
 
   let status: string;
-  if ((stats.active ?? 0) > 0) status = stats.total > 1 ? "relisted" : "active";
+  if (Number(stats.active ?? 0) > 0) status = total > 1 ? "relisted" : "active";
   else if (queued > 0) status = "queued";
   else if (stats.latest === "sold") status = "sold";
-  else if (stats.total > 0) status = "archived";
+  else if (total > 0) status = "archived";
   else status = item.status === "archived" ? "archived" : "draft";
 
-  if (status !== item.status) db.prepare("UPDATE items SET status = ?, updated_at = ? WHERE id = ?").run(status, nowIso(), itemId);
+  if (status !== item.status) await db.run("UPDATE items SET status = ?, updated_at = ? WHERE id = ?", [status, nowIso(), itemId]);
 }
 
 // ---------- search ----------
@@ -255,9 +256,9 @@ export const archiveQuery = z.object({
   pageSize: z.coerce.number().int().min(1).max(200).default(48),
 });
 
-export function searchItems(q: z.infer<typeof archiveQuery>) {
+export async function searchItems(q: z.infer<typeof archiveQuery>) {
   const where: string[] = [];
-  const params: Record<string, SQLInputValue> = {};
+  const params: Record<string, unknown> = {};
   if (q.q) {
     where.push("(i.title LIKE @q OR i.description LIKE @q OR i.brand LIKE @q)");
     params.q = `%${q.q}%`;
@@ -270,9 +271,9 @@ export function searchItems(q: z.infer<typeof archiveQuery>) {
     params.accountId = q.accountId;
   }
   const w = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const order = { updated: "i.updated_at DESC", created: "i.created_at DESC", price: "i.price_cents DESC", title: "i.title COLLATE NOCASE" }[q.sort];
-  const total = (db.prepare(`SELECT COUNT(*) c FROM items i ${w}`).get(params) as { c: number }).c;
-  const rows = db.prepare(`
+  const order = { updated: "i.updated_at DESC", created: "i.created_at DESC", price: "i.price_cents DESC", title: "LOWER(i.title)" }[q.sort];
+  const total = Number((await db.get<{ c: number }>(`SELECT COUNT(*) c FROM items i ${w}`, params))!.c);
+  const rows = await db.all(`
     SELECT i.*,
       (SELECT file_name FROM item_photos p WHERE p.item_id = i.id ORDER BY position, id LIMIT 1) AS cover_photo,
       (SELECT COUNT(*) FROM item_photos p WHERE p.item_id = i.id) AS photo_count,
@@ -281,33 +282,33 @@ export function searchItems(q: z.infer<typeof archiveQuery>) {
     FROM items i ${w}
     ORDER BY ${order}
     LIMIT @limit OFFSET @offset
-  `).all({ ...params, limit: q.pageSize, offset: (q.page - 1) * q.pageSize });
+  `, { ...params, limit: q.pageSize, offset: (q.page - 1) * q.pageSize });
   return { total, page: q.page, pageSize: q.pageSize, items: rows };
 }
 
-export function facets() {
-  const col = (c: string) => (db.prepare(`SELECT ${c} v, COUNT(*) n FROM items WHERE ${c} IS NOT NULL AND ${c} <> '' GROUP BY ${c} ORDER BY n DESC`).all() as { v: string; n: number }[]);
-  return { categories: col("category"), brands: col("brand") };
+export async function facets() {
+  const col = (c: string) => db.all<{ v: string; n: number }>(`SELECT ${c} v, COUNT(*) n FROM items WHERE ${c} IS NOT NULL AND ${c} <> '' GROUP BY ${c} ORDER BY n DESC`);
+  return { categories: await col("category"), brands: await col("brand") };
 }
 
-export function itemDetail(id: number) {
-  const item = getItem(id);
-  const listings = db.prepare(`
+export async function itemDetail(id: number) {
+  const item = await getItem(id);
+  const listings = await db.all(`
     SELECT l.*, a.name AS account_name, a.domain AS account_domain
     FROM listings l JOIN accounts a ON a.id = l.account_id
     WHERE l.item_id = ? ORDER BY l.listed_at DESC
-  `).all(id);
-  const priceChanges = db.prepare(`
+  `, [id]);
+  const priceChanges = await db.all(`
     SELECT pc.* FROM listing_price_changes pc JOIN listings l ON l.id = pc.listing_id WHERE l.item_id = ? ORDER BY pc.created_at DESC
-  `).all(id);
-  const queue = db.prepare(`
+  `, [id]);
+  const queue = await db.all(`
     SELECT q.*, a.name AS account_name FROM publish_queue q JOIN accounts a ON a.id = q.account_id
     WHERE q.item_id = ? ORDER BY q.scheduled_at DESC
-  `).all(id);
+  `, [id]);
   const sold = (listings as unknown as ListingRow[]).filter((l) => l.status === "sold");
   return {
     item,
-    photos: listPhotos(id),
+    photos: await listPhotos(id),
     listings,
     priceChanges,
     queue,

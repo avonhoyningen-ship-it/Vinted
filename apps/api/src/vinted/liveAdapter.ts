@@ -59,7 +59,7 @@ function adoptRotatedTokens(s: VintedSession, set: Map<string, string>) {
     if (isAnonymous(next) || next.userId !== current.userId) return;
     s.token = access;
     s.refreshToken = set.get("refresh_token_web") ?? s.refreshToken ?? null;
-    s.onTokens?.(s.token, s.refreshToken ?? null);
+    void Promise.resolve(s.onTokens?.(s.token, s.refreshToken ?? null)).catch((e) => console.warn("[vinted] Token speichern:", (e as Error).message));
   } catch {
     /* ignore malformed cookies */
   }

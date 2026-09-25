@@ -20,26 +20,28 @@ export const DEFAULT_SETTINGS = {
 };
 export type SettingKey = keyof typeof DEFAULT_SETTINGS;
 
-export function getSettings(): typeof DEFAULT_SETTINGS {
-  const rows = db.prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
+export async function getSettings(): Promise<typeof DEFAULT_SETTINGS> {
+  const rows = await db.all<{ key: string; value: string }>("SELECT key, value FROM settings");
   const out: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const r of rows) if (r.key in DEFAULT_SETTINGS) out[r.key] = JSON.parse(r.value);
   return out as typeof DEFAULT_SETTINGS;
 }
 
-export function getSetting<K extends SettingKey>(key: K): (typeof DEFAULT_SETTINGS)[K] {
-  return getSettings()[key];
+export async function getSetting<K extends SettingKey>(key: K): Promise<(typeof DEFAULT_SETTINGS)[K]> {
+  return (await getSettings())[key];
 }
 
-export function setSettings(patch: Partial<Record<SettingKey, unknown>>) {
-  const stmt = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
-  db.transaction(() => {
+export async function setSettings(patch: Partial<Record<SettingKey, unknown>>) {
+  for (const [k, v] of Object.entries(patch)) {
+    if (!(k in DEFAULT_SETTINGS)) continue;
+    const def = DEFAULT_SETTINGS[k as SettingKey];
+    if (typeof v !== typeof def) throw new Error(`Setting ${k} must be ${typeof def}`);
+  }
+  await db.tx(async () => {
     for (const [k, v] of Object.entries(patch)) {
       if (!(k in DEFAULT_SETTINGS)) continue;
-      const def = DEFAULT_SETTINGS[k as SettingKey];
-      if (typeof v !== typeof def) throw new Error(`Setting ${k} must be ${typeof def}`);
-      stmt.run(k, JSON.stringify(v));
+      await db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value", [k, JSON.stringify(v)]);
     }
-  })();
+  });
   return getSettings();
 }

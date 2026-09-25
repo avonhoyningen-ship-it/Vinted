@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { currentUserId } from "../db/index.js";
 
 export type DashboardEvent =
   | { type: "sale"; accountId: number; accountName: string; itemId: number | null; title: string; priceCents: number; currency: string; soldAt: string }
@@ -37,8 +38,9 @@ export interface AssistTab {
 }
 
 class Bus extends EventEmitter {
+  /** Events belong to the user whose request/job raised them; the SSE stream only forwards the viewer's own. */
   publish(e: DashboardEvent) {
-    this.emit("event", e);
+    this.emit("event", e, currentUserId());
   }
 }
 

@@ -23,7 +23,7 @@ const app = createApp();
 // Without a password the API only listens on this PC; with one it is reachable in the network.
 const host = env.dashboardPassword || env.apiToken ? "0.0.0.0" : "127.0.0.1";
 // Brand rules also cover drafts created before a rule existed.
-try { applyBrandRules(); } catch (e) { console.warn("Markenregeln:", (e as Error).message); }
+void applyBrandRules().catch((e) => console.warn("Markenregeln:", (e as Error).message));
 
 const server = app.listen(env.port, host, () => {
   console.log(`[api] http://localhost:${env.port}/api${host === "127.0.0.1" ? "  (ohne Passwort: nur auf diesem PC erreichbar)" : ""}`);
