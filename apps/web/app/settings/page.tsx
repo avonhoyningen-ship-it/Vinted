@@ -9,7 +9,7 @@ import { useApi } from "@/lib/useApi";
 interface Settings {
   "sound.preset": SoundPreset; "sound.volume": number; "sound.enabled": boolean;
   "notifications.desktop": boolean; "notifications.confetti": boolean;
-  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string;
+  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string;
 }
 interface Info { aiEnabled: boolean; aiModel: string; pollIntervalMinutes: number; publishIntervalMinutes: number }
 
@@ -75,6 +75,8 @@ export default function SettingsPage() {
           </label>
         </div>
 
+        <PromptEditor value={data["ai.listingPrompt"]} onSave={(v) => update({ "ai.listingPrompt": v })} />
+
         {info.data && (
           <div className="card stack">
             <h2>System</h2>
@@ -89,5 +91,28 @@ export default function SettingsPage() {
         )}
       </div>
     </>
+  );
+}
+
+function PromptEditor({ value, onSave }: { value: string; onSave: (v: string) => Promise<void> }) {
+  const [text, setText] = useState(value);
+  const [defaults, setDefaults] = useState<string | null>(null);
+  useEffect(() => setText(value), [value]);
+  useEffect(() => { api<{ "ai.listingPrompt": string }>("/settings/defaults").then((d) => setDefaults(d["ai.listingPrompt"])).catch(() => {}); }, []);
+  return (
+    <div className="card stack" style={{ gridColumn: "1 / -1" }}>
+      <h2>KI-Prompt für Beschreibungen</h2>
+      <div className="small muted">
+        So schreibt die KI Titel, Stichpunkte und Hashtags. Maße kommen aus dem Ordnernamen, Zustand und Besonderheiten aus deinen Hinweisen beim Upload.
+        Das Drehen der Fotos und das Datenformat regelt das Programm selbst – dafür musst du hier nichts schreiben.
+      </div>
+      <textarea rows={18} value={text} onChange={(e) => setText(e.target.value)} style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }} />
+      <div className="row">
+        {defaults !== null && text !== defaults && <button className="btn" onClick={() => setText(defaults)}>Standard wiederherstellen</button>}
+        <div className="spacer" />
+        {text !== value && <span className="small muted">Ungespeichert</span>}
+        <button className="btn primary" disabled={text === value || text.trim().length < 20} onClick={() => onSave(text)}>Prompt speichern</button>
+      </div>
+    </div>
   );
 }

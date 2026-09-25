@@ -65,7 +65,7 @@ export default function ArchiveDetailPage() {
       <div className="grid detail-grid">
         <div className="stack">
           <div className="card"><h2>Fotos ({data.photos.length})</h2><PhotoManager itemId={item.id} photos={data.photos} onChange={reload} /></div>
-          <div className="card"><h2>Artikeldaten</h2><ItemEditor item={item} aiEnabled={!!info.data?.aiEnabled} onSaved={() => reload()} /></div>
+          <div className="card"><h2>Artikeldaten</h2><ItemEditor item={item} aiEnabled={!!info.data?.aiEnabled} onSaved={() => reload()} onPhotosChanged={() => reload()} /></div>
         </div>
         <div className="stack">
           <div className="card">

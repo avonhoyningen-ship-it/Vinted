@@ -4,9 +4,9 @@ import { db, nowIso } from "../../db/index.js";
 import { h, HttpError, idParam, notFound } from "../../lib/http.js";
 import { getSetting } from "../../lib/settings.js";
 import { upload } from "../../lib/upload.js";
-import { storePhoto } from "../../storage/photos.js";
-import { addPhoto, createItem, getItem, itemInput, listPhotos, updateItem } from "../archive/repo.js";
-import { aiEnabled, generateListing } from "./ai.js";
+import { rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
+import { addPhoto, createItem, getItem, itemInput, listPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
+import { aiEnabled, composeDescription, generateListing, type ListingSuggestion } from "./ai.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
 export const listingsRouter = Router();
@@ -27,25 +27,35 @@ listingsRouter.get("/", h((req, res) => {
 
 // ---------- drafts (photo-first creation) ----------
 
+/** "Laenge_70_Breite-55" → "Laenge 70 Breite 55" (folder names carry the measurements). */
+export function measurementsFromFolder(folder: string | undefined): string | null {
+  const name = (folder ?? "").split(/[\\/]/).filter(Boolean).pop() ?? "";
+  const cleaned = name.replace(/[_]+/g, " ").replace(/\s*-\s*/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned ? cleaned.slice(0, 500) : null;
+}
+
 /**
- * Creates a draft item from uploaded photos. Optional multipart field `data`
- * (JSON) pre-fills fields; `ai=true` immediately fills fields with AI.
+ * Creates a draft item from uploaded photos. Optional multipart fields:
+ * `data` (JSON) pre-fills fields, `folder` = folder name with measurements,
+ * `hints` = notes for the AI, `ai=true` fills everything with AI.
  */
 listingsRouter.post("/drafts", upload.array("photos", 20), h(async (req, res) => {
   const files = (req.files as Express.Multer.File[] | undefined) ?? [];
   if (!files.length) throw new HttpError(400, "Mindestens ein Foto hochladen (Feld 'photos')");
   const data = req.body.data ? itemInput.partial().parse(JSON.parse(req.body.data)) : {};
+  const measurements = data.measurements ?? measurementsFromFolder(req.body.folder);
+  // Photos are sorted by file name so the order matches the folder.
+  const sorted = [...files].sort((a, b) => a.originalname.localeCompare(b.originalname, "de", { numeric: true }));
   const stored = [];
-  for (const f of files) stored.push({ photo: await storePhoto(f.buffer), name: f.originalname });
-  const item = createItem({ ...data, title: data.title || "Neuer Artikel" });
+  for (const f of sorted) stored.push({ photo: await storePhoto(f.buffer), name: f.originalname });
+  const item = createItem({ ...data, measurements, title: data.title || measurements || "Neuer Artikel" });
   for (const s of stored) addPhoto(item.id, s.photo, s.name);
 
   let suggestion = null;
   let aiError: string | null = null;
   if (req.body.ai === "true" && aiEnabled()) {
     try {
-      suggestion = await generateListing(listPhotos(item.id), req.body.hints, getSetting("ai.language"));
-      applySuggestion(item.id, suggestion, data);
+      suggestion = await runAi(item.id, req.body.hints, data);
     } catch (e) {
       aiError = (e as Error).message;
     }
@@ -53,31 +63,48 @@ listingsRouter.post("/drafts", upload.array("photos", 20), h(async (req, res) =>
   res.status(201).json({ item: getItem(item.id), photos: listPhotos(item.id), suggestion, aiError });
 }));
 
-type Suggestion = Awaited<ReturnType<typeof generateListing>>;
-function applySuggestion(itemId: number, s: Suggestion, keep: Partial<z.infer<typeof itemInput>> = {}) {
-  updateItem(itemId, {
-    title: keep.title || s.title.slice(0, 200),
-    description: keep.description || s.description,
-    category: keep.category ?? s.category,
-    brand: keep.brand ?? s.brand,
-    size: keep.size ?? s.size,
-    condition: keep.condition ?? s.condition,
-    color: keep.color ?? s.color,
-    material: keep.material ?? s.material,
-    price_cents: keep.price_cents ?? Math.round(s.suggested_price_eur * 100),
+/** Runs the sales-kit AI: rotates photos upright and (optionally) writes the texts into the item. */
+async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.infer<typeof itemInput>> = {}, apply = true) {
+  const item = getItem(itemId);
+  const photos = listPhotos(itemId);
+  const s = await generateListing(photos, {
+    hints, measurements: item.measurements, language: getSetting("ai.language"), stylePrompt: getSetting("ai.listingPrompt"),
   });
+  await applyRotations(photos, s);
+  const description = composeDescription(s);
+  if (apply) {
+    updateItem(itemId, {
+      title: keep.title || s.title.slice(0, 200),
+      description: keep.description || description.slice(0, 5000),
+      category: keep.category ?? s.category,
+      brand: keep.brand ?? s.brand,
+      size: keep.size ?? s.size,
+      condition: keep.condition ?? s.condition,
+      color: keep.color ?? s.color,
+      material: keep.material ?? s.material,
+      price_cents: keep.price_cents ?? Math.round(s.suggested_price_eur * 100),
+    });
+  }
+  return { ...s, description };
+}
+
+async function applyRotations(photos: ReturnType<typeof listPhotos>, s: ListingSuggestion) {
+  for (const r of s.rotations) {
+    const photo = photos[r.photo - 1];
+    if (!photo || r.degrees === 0) continue;
+    replacePhotoFile(photo.id, await rotateStoredPhoto(photo.file_name, r.degrees));
+  }
 }
 
 const aiInput = z.object({ apply: z.boolean().default(false), hints: z.string().max(1000).optional() });
 
-/** Runs AI generation on an item's stored photos. */
+/** Runs the sales-kit AI on an item's stored photos (photos are always rotated upright). */
 listingsRouter.post("/drafts/:id/ai", h(async (req, res) => {
   const id = idParam(req);
   getItem(id);
   const input = aiInput.parse(req.body ?? {});
-  const suggestion = await generateListing(listPhotos(id), input.hints, getSetting("ai.language"));
-  if (input.apply) applySuggestion(id, suggestion);
-  res.json({ suggestion, item: getItem(id) });
+  const suggestion = await runAi(id, input.hints, {}, input.apply);
+  res.json({ suggestion, item: getItem(id), photos: listPhotos(id) });
 }));
 
 listingsRouter.get("/drafts", h((_req, res) => {

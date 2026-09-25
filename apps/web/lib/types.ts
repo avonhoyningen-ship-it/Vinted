@@ -31,6 +31,6 @@ export interface QueueEntry {
 export interface Template { id: number; name: string; kind: string; body: string }
 
 export interface Suggestion {
-  title: string; description: string; category: string; brand: string | null; size: string | null; condition: string;
+  title: string; description: string; bullets: string[]; hashtags: string[]; category: string; brand: string | null; size: string | null; condition: string;
   color: string | null; material: string | null; suggested_price_eur: number; price_reasoning: string; confidence_notes: string;
 }

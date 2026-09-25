@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { EnqueueDialog } from "@/components/EnqueueDialog";
+import { FolderUpload } from "@/components/FolderUpload";
 import { Dropzone } from "@/components/PhotoManager";
 import { useToast } from "@/components/Toasts";
 import { Empty, ErrorBox, PageHead, StatusBadge, Thumb } from "@/components/ui";
@@ -10,13 +11,13 @@ import { api, dateTime, euro, photoUrl } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { Item, Listing, QueueEntry, Template } from "@/lib/types";
 
-const TABS = { new: "Neu erstellen", drafts: "Entwürfe", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
+const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
 type Tab = keyof typeof TABS;
 
 function ListingsInner() {
   const params = useSearchParams();
   const router = useRouter();
-  const tab = (params.get("tab") as Tab) in TABS ? (params.get("tab") as Tab) : "new";
+  const tab = (params.get("tab") as Tab) in TABS ? (params.get("tab") as Tab) : "folder";
   const setTab = (t: Tab) => router.replace(`/listings?tab=${t}`);
   return (
     <>
@@ -26,6 +27,7 @@ function ListingsInner() {
           <button key={t} role="tab" aria-selected={tab === t} className={`tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>{TABS[t]}</button>
         ))}
       </div>
+      {tab === "folder" && <FolderTab onDone={() => setTab("drafts")} />}
       {tab === "new" && <NewTab onDone={() => setTab("drafts")} />}
       {tab === "drafts" && <DraftsTab />}
       {tab === "queue" && <QueueTab />}
@@ -37,6 +39,18 @@ function ListingsInner() {
 
 export default function ListingsPage() {
   return <Suspense><ListingsInner /></Suspense>;
+}
+
+// ---------- folder ----------
+
+function FolderTab({ onDone }: { onDone: () => void }) {
+  const info = useApi<{ aiEnabled: boolean }>("/info");
+  return (
+    <div className="stack">
+      {info.data && !info.data.aiEnabled && <div className="alert small">KI ist deaktiviert – ANTHROPIC_API_KEY in .env eintragen, damit Fotos gedreht und Beschreibungen geschrieben werden.</div>}
+      <FolderUpload aiEnabled={!!info.data?.aiEnabled} onDone={onDone} />
+    </div>
+  );
 }
 
 // ---------- new ----------

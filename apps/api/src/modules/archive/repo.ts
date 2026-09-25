@@ -140,6 +140,12 @@ export function addPhoto(itemId: number, p: StoredPhoto, originalName: string | 
   return db.prepare("SELECT * FROM item_photos WHERE id = ?").get(r.lastInsertRowid) as unknown as PhotoRow;
 }
 
+/** Points a photo row at a new file (e.g. after rotation), keeping its position. */
+export function replacePhotoFile(photoId: number, p: StoredPhoto) {
+  db.prepare("UPDATE item_photos SET file_name = ?, width = ?, height = ?, size_bytes = ?, sha256 = ? WHERE id = ?")
+    .run(p.fileName, p.width, p.height, p.sizeBytes, p.sha256, photoId);
+}
+
 export function deletePhoto(itemId: number, photoId: number) {
   const r = db.prepare("DELETE FROM item_photos WHERE id = ? AND item_id = ?").run(photoId, itemId);
   if (!r.changes) throw notFound("Foto");

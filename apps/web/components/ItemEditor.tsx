@@ -18,7 +18,7 @@ const toForm = (i: Item): Form => ({
 });
 
 /** Edit form for an archive item, incl. text templates and AI fill-in. */
-export function ItemEditor({ item, onSaved, aiEnabled }: { item: Item; onSaved: (i: Item) => void; aiEnabled: boolean }) {
+export function ItemEditor({ item, onSaved, aiEnabled, onPhotosChanged }: { item: Item; onSaved: (i: Item) => void; aiEnabled: boolean; onPhotosChanged?: () => void }) {
   const toast = useToast();
   const [f, setF] = useState<Form>(toForm(item));
   const [busy, setBusy] = useState(false);
@@ -59,6 +59,7 @@ export function ItemEditor({ item, onSaved, aiEnabled }: { item: Item; onSaved: 
     try {
       const r = await api<{ suggestion: Suggestion; item: Item }>(`/listings/drafts/${item.id}/ai`, { method: "POST", json: { apply: false, hints: hints || undefined } });
       setSuggestion(r.suggestion);
+      onPhotosChanged?.(); // the AI rotates photos upright
     } catch (e) {
       setError((e as Error).message);
     } finally {

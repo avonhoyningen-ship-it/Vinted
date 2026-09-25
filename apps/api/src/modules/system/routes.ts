@@ -30,6 +30,10 @@ systemRouter.get("/settings", (_req, res) => {
   res.json(getSettings());
 });
 
+systemRouter.get("/settings/defaults", (_req, res) => {
+  res.json(DEFAULT_SETTINGS);
+});
+
 systemRouter.put("/settings", h((req, res) => {
   const body = z.record(z.string(), z.unknown()).parse(req.body);
   for (const k of Object.keys(body)) if (!(k in DEFAULT_SETTINGS)) throw new HttpError(400, `Unbekannte Einstellung ${k}`);

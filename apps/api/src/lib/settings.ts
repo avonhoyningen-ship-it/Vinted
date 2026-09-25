@@ -1,4 +1,5 @@
 import { db } from "../db/index.js";
+import { DEFAULT_LISTING_PROMPT } from "../modules/listings/defaultPrompt.js";
 
 export const DEFAULT_SETTINGS = {
   "sound.preset": "cha-ching",
@@ -10,6 +11,8 @@ export const DEFAULT_SETTINGS = {
   "automation.dailyMessageCap": 40,
   "automation.paused": false,
   "ai.language": "de",
+  /** Instructions for AI listing texts (Einstellungen → KI-Prompt). */
+  "ai.listingPrompt": DEFAULT_LISTING_PROMPT,
 };
 export type SettingKey = keyof typeof DEFAULT_SETTINGS;
 
