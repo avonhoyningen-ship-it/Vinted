@@ -10,6 +10,35 @@ const byName = (a: File, b: File) => a.name.localeCompare(b.name, "de", { numeri
 interface Group { key: string; files: File[]; measurements: string; hint: string }
 type Mode = "perFolder" | "grouped";
 
+interface PickedFile { file: File; path: string }
+
+/** Reads dropped folders recursively (Explorer/Finder drag & drop). */
+async function filesFromDrop(dt: DataTransfer): Promise<PickedFile[]> {
+  const out: PickedFile[] = [];
+  const walk = async (entry: FileSystemEntry | null, path: string): Promise<void> => {
+    if (!entry) return;
+    if (entry.isFile) {
+      const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+      out.push({ file, path: path + file.name });
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      // readEntries returns at most ~100 entries per call – read until empty.
+      for (;;) {
+        const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+        if (!batch.length) break;
+        for (const e of batch) await walk(e, `${path}${entry.name}/`);
+      }
+    }
+  };
+  const entries = [...dt.items].map((i) => i.webkitGetAsEntry?.() ?? null);
+  if (entries.some(Boolean)) {
+    for (const e of entries) await walk(e, "");
+  } else {
+    for (const f of dt.files) out.push({ file: f, path: f.name });
+  }
+  return out;
+}
+
 let keySeq = 0;
 const newKey = () => `g${++keySeq}`;
 
@@ -50,10 +79,12 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const urls = useMemo(() => new Map(allFiles.map((f) => [f, URL.createObjectURL(f)])), [allFiles]);
   useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
 
-  function pick(files: File[]) {
+  const [over, setOver] = useState(false);
+
+  function pick(picked: PickedFile[]) {
     const map = new Map<string, File[]>();
-    for (const f of files.filter(isImage)) {
-      const parts = (f.webkitRelativePath || f.name).split("/");
+    for (const { file: f, path } of picked.filter((p) => isImage(p.file))) {
+      const parts = path.split("/");
       const folder = parts.length > 1 ? parts[parts.length - 2]! : "Ohne Ordner";
       map.set(folder, [...(map.get(folder) ?? []), f]);
     }
@@ -130,11 +161,28 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const total = allFiles.length;
 
   return (
-    <div className="card stack">
+    <div
+      className="card stack"
+      onDragOver={(e) => { e.preventDefault(); if (!progress) setOver(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(false); }}
+      onDrop={async (e) => {
+        e.preventDefault();
+        setOver(false);
+        if (progress) return;
+        const picked = await filesFromDrop(e.dataTransfer);
+        if (!picked.some((p) => isImage(p.file))) toast({ kind: "error", text: "Keine Fotos im gezogenen Ordner gefunden" });
+        else pick(picked);
+      }}
+    >
+      <div className={`dropzone ${over ? "over" : ""}`} onClick={() => !progress && input.current?.click()} role="button" tabIndex={0}
+        onKeyDown={(e) => e.key === "Enter" && input.current?.click()}>
+        <div style={{ fontSize: 28 }}>📁</div>
+        <strong>Ordner hierher ziehen</strong> oder klicken zum Auswählen
+        <div className="small muted">Alle Kleidungsstücke in einem Ordner, oder ein Oberordner mit einem Unterordner pro Kleidungsstück</div>
+      </div>
       <div className="row">
-        <button className="btn primary" disabled={!!progress} onClick={() => input.current?.click()}>📁 Ordner auswählen</button>
         {!!total && <span className="muted">{total} Fotos in {folders.size} Ordner{folders.size === 1 ? "" : "n"}</span>}
-        <input ref={input} type="file" hidden multiple {...{ webkitdirectory: "", directory: "" }} onChange={(e) => { pick([...(e.target.files ?? [])]); e.target.value = ""; }} />
+        <input ref={input} type="file" hidden multiple {...{ webkitdirectory: "", directory: "" }} onChange={(e) => { pick([...(e.target.files ?? [])].map((f) => ({ file: f, path: f.webkitRelativePath || f.name }))); e.target.value = ""; }} />
       </div>
 
       {!!total && (
@@ -171,7 +219,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
                 </div>
                 <div className="photo-strip">
                   {g.files.map((f, p) => (
-                    <div className="photo" key={f.webkitRelativePath || f.name} style={{ width: 72, height: 90 }} title={f.name}>
+                    <div className="photo" key={`${p}-${f.name}`} style={{ width: 72, height: 90 }} title={f.name}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={urls.get(f)} alt={f.name} loading="lazy" />
                       {p > 0 && <button className="x" onClick={() => splitAt(i, p)} title="Ab hier neuer Artikel" aria-label="Ab hier neuer Artikel">✂</button>}

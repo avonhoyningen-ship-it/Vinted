@@ -14,7 +14,8 @@ vi.mock("../src/modules/listings/ai.js", async (orig) => {
       hashtags: ["#japanstyle", "Y2K", "#vintage", "#y2k", "#older brother core"],
       category: "Herren > Jacken", brand: "Carhartt", size: "L", condition: "very_good", color: "Braun", material: "Canvas",
       suggested_price_eur: 39, price_reasoning: "gefragt", confidence_notes: "",
-      rotations: [{ photo: 1, degrees: 90 }, { photo: 2, degrees: 0 }],
+      rotations: [{ photo: 1, degrees: 90 }, { photo: 2, degrees: 180 }],
+      photo_order: [2, 1],
     })),
   };
 });
@@ -29,6 +30,12 @@ const landscapeWithGps = () => sharp({ create: { width: 80, height: 40, channels
 const portrait = () => sharp({ create: { width: 40, height: 80, channels: 3, background: "#358" } }).jpeg().toBuffer();
 
 describe("folder upload with AI sales kit", () => {
+  it("normalises the photo order from the model", async () => {
+    const { normalizeOrder } = await import("../src/modules/listings/ai.js");
+    expect(normalizeOrder([3, 1, 2], 3)).toEqual([2, 0, 1]);
+    expect(normalizeOrder([2, 2, 9], 3)).toEqual([1, 0, 2]); // duplicates/unknown ignored, missing appended
+  });
+
   it("reads measurements from folder names", () => {
     expect(measurementsFromFolder("Jacken/Laenge_70_Breite-55")).toBe("Laenge 70 Breite 55");
     expect(measurementsFromFolder("L 70cm x B 55cm")).toBe("L 70cm x B 55cm");
@@ -55,11 +62,11 @@ describe("folder upload with AI sales kit", () => {
     expect(item.description.split("\n").filter((l: string) => l.startsWith("- "))).toHaveLength(4);
     expect(item.description).toMatch(/#japanstyle #y2k #vintage #olderbrothercore$/);
 
-    // Sorted by file name (numeric): IMG_2 before IMG_10; photo 1 rotated from 80x40 to 40x80.
-    const photos = res.body.photos;
-    expect(photos.map((p: { original_name: string }) => p.original_name)).toEqual(["IMG_2.jpg", "IMG_10.jpg"]);
+    // Uploaded sorted by file name (IMG_2, IMG_10); the model put IMG_10 (outfit shot) first.
     const detail = await request(app).get(`/api/archive/${item.id}`);
-    const first = detail.body.photos[0];
+    expect(detail.body.photos.map((p: { original_name: string }) => p.original_name)).toEqual(["IMG_10.jpg", "IMG_2.jpg"]);
+    // IMG_2 was lying on its side: rotated from 80x40 to 40x80.
+    const first = detail.body.photos[1];
     expect([first.width, first.height]).toEqual([40, 80]);
     const img = await request(app).get(`/api/photos/${first.file_name}`).buffer(true).parse((r, cb) => {
       const chunks: Buffer[] = [];

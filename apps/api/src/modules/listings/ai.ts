@@ -23,6 +23,7 @@ export const ListingSuggestion = z.object({
     photo: z.number().int().describe("Fotonummer, beginnend bei 1"),
     degrees: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
   })).describe("Für JEDES Foto: Drehung im Uhrzeigersinn, damit es aufrecht steht (0 = passt schon)"),
+  photo_order: z.array(z.number().int()).describe("ALLE Fotonummern in der gewünschten Reihenfolge fürs Inserat"),
   confidence_notes: z.string().describe("Was unsicher ist und manuell geprüft werden sollte (nur intern, nicht Teil der Beschreibung)"),
 });
 export type ListingSuggestion = z.infer<typeof ListingSuggestion>;
@@ -39,7 +40,12 @@ export const aiEnabled = () => !!env.anthropicApiKey;
 /** Fixed technical rules appended to the (user-editable) style prompt. */
 const TECHNICAL_RULES = `
 Technische Vorgaben (immer einhalten):
-- Die Fotos sind nummeriert (Foto 1, Foto 2, …). Gib für jedes Foto unter "rotations" an, um wie viel Grad es im Uhrzeigersinn gedreht werden muss, damit Kleidung/Etiketten aufrecht und lesbar sind (0, 90, 180 oder 270).
+- Die Fotos sind nummeriert (Foto 1, Foto 2, …). Gib für jedes Foto unter "rotations" an, um wie viel Grad es im Uhrzeigersinn gedreht werden muss, damit Kleidung/Etiketten aufrecht und lesbar sind (0, 90, 180 oder 270). Achte besonders auf Fotos, die auf dem Kopf stehen (180) oder seitlich liegen (90/270): Kragen/Bund oben, Schrift auf Etiketten lesbar.
+- Gib unter "photo_order" alle Fotonummern in dieser Reihenfolge an (innerhalb jeder Stufe die ursprüngliche Reihenfolge beibehalten):
+  1. Gesamtbild/Outfit-Foto mit Deko oder Accessoires, die darauf liegen (z. B. Kabelkopfhörer, Sonnenbrille, Handy)
+  2. Foto nur vom Kleidungsstück bzw. Artikel selbst, ohne Deko
+  3. Nahaufnahmen und Details (Print, Stoff, Nähte, Knöpfe, Mängel)
+  4. Etikett/Tag (Marke, Größe, Pflegeetikett) ganz am Ende
 - "bullets" enthält nur die Stichpunkte der Beschreibung (ohne Titel, ohne Hashtags).
 - Hashtags gehören ausschließlich in "hashtags".
 - Maße und Größe nur übernehmen, wenn sie vom Verkäufer stammen oder klar auf einem Etikett lesbar sind.`;
@@ -82,6 +88,18 @@ export async function generateListing(photos: PhotoRow[], opts: GenerateOptions)
   if (response.stop_reason === "refusal") throw new HttpError(422, "Die KI hat die Anfrage abgelehnt");
   if (!response.parsed_output) throw new HttpError(502, "KI-Antwort konnte nicht gelesen werden");
   return response.parsed_output;
+}
+
+/** Valid permutation of 0..n-1 from the model's 1-based order; missing photos keep their place at the end. */
+export function normalizeOrder(order: number[], n: number): number[] {
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const p of order) {
+    const i = p - 1;
+    if (Number.isInteger(i) && i >= 0 && i < n && !seen.has(i)) { seen.add(i); out.push(i); }
+  }
+  for (let i = 0; i < n; i++) if (!seen.has(i)) out.push(i);
+  return out;
 }
 
 /** Bullets + hashtags → final Vinted description text. */

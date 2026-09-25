@@ -5,8 +5,8 @@ import { h, HttpError, idParam, notFound } from "../../lib/http.js";
 import { getSetting } from "../../lib/settings.js";
 import { upload, uploadThumbs } from "../../lib/upload.js";
 import { rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
-import { addPhoto, createItem, getItem, itemInput, listPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
-import { aiEnabled, composeDescription, generateListing, groupingThumb, groupPhotosInOrder, type ListingSuggestion } from "./ai.js";
+import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
+import { aiEnabled, composeDescription, generateListing, groupingThumb, groupPhotosInOrder, normalizeOrder, type ListingSuggestion } from "./ai.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
 export const listingsRouter = Router();
@@ -71,6 +71,10 @@ async function runAi(itemId: number, hints: string | undefined, keep: Partial<z.
     hints, measurements: item.measurements, language: getSetting("ai.language"), stylePrompt: getSetting("ai.listingPrompt"),
   });
   await applyRotations(photos, s);
+  // Outfit shot → article only → details → tag (as decided by the model).
+  const sent = photos.slice(0, 20);
+  const order = normalizeOrder(s.photo_order ?? [], sent.length).map((i) => sent[i]!.id);
+  reorderPhotos(itemId, [...order, ...photos.slice(20).map((p) => p.id)]);
   const description = composeDescription(s);
   if (apply) {
     updateItem(itemId, {
