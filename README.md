@@ -50,7 +50,7 @@ Start dieser Version automatisch aus der Datenbank gelöscht.
 |---|---|
 | `/` | Übersicht: Umsatz heute/Monat, aktive Listings, Warteschlange, letzte Aktivität |
 | `/accounts` | Accounts verbinden (Länder-Domain + Session-Token), Status, Listings, Verkäufe, Nachrichten, Follower |
-| `/listings` | **Ordner hochladen** (ein Ordner = ein Artikel, Ordnername = Maße; KI dreht die Fotos, schreibt Titel, Stichpunkte, Hashtags, Preis und legt den Entwurf an), einzelne Fotos, Entwürfe, Warteschlange, aktive Listings, Textvorlagen |
+| `/listings` | **Ordner hochladen** (alle Kleidungsstücke in einem Ordner → KI ordnet die Fotos der Reihe nach den Artikeln zu, Gruppen korrigierbar; oder ein Ordner pro Artikel mit Maßen im Namen; KI dreht die Fotos, schreibt Titel, Stichpunkte, Hashtags, Preis und legt den Entwurf an), einzelne Fotos, Entwürfe, Warteschlange, aktive Listings, Textvorlagen |
 | `/archive` | Alle je eingestellten Artikel, filterbar nach Account/Status/Kategorie/Marke; Bearbeiten, Fotos, Verlauf, Reupload |
 | `/automations` | Regeln „Wenn [Ereignis] dann [Aktion] nach [Zeitspanne]“ + Aktionsprotokoll |
 | `/stats` | Umsatz/Verkäufe pro Zeitraum und Account (gestapelte Balken), Ø Verkaufsdauer, Top-Marken/Kategorien |

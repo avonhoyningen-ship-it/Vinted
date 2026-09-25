@@ -93,3 +93,62 @@ export function composeDescription(s: Pick<ListingSuggestion, "bullets" | "hasht
   const tags = [...new Set(s.hashtags.map((t) => t.trim().replace(/\s+/g, "")).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`).toLowerCase()))];
   return [bullets.join("\n"), tags.join(" ")].filter(Boolean).join("\n\n");
 }
+
+// ---------- grouping a flat folder into articles ----------
+
+const GroupWindow = z.object({
+  decisions: z.array(z.object({
+    photo: z.number().int().describe("Fotonummer im aktuellen Block (ab 2)"),
+    new_item: z.boolean().describe("true = auf diesem Foto beginnt ein ANDERES Kleidungsstück/Accessoire als auf dem vorherigen Foto"),
+  })),
+});
+
+const GROUP_SYSTEM = `Du sortierst Produktfotos für Vinted-Inserate. Die Fotos stammen aus einem Ordner und sind in Aufnahme-Reihenfolge:
+alle Fotos eines Artikels liegen direkt hintereinander (Vorderseite, Rückseite, Etikett, Details, Maßband …), dann folgt der nächste Artikel.
+Entscheide für jedes Foto ab Foto 2, ob darauf ein anderer Artikel beginnt als auf dem direkt vorherigen Foto.
+Detail- und Etikettenfotos gehören zum Artikel davor, wenn Farbe, Stoff oder Muster passen. Deko (Handy, Kopfhörer, Parfum …) ignorieren.`;
+
+const WINDOW = 30;
+
+/**
+ * Splits ordered photos into articles. Works in overlapping windows (the last
+ * photo of one window is the first of the next) so long folders keep context.
+ * Returns groups of indexes, in order.
+ */
+export async function groupPhotosInOrder(images: Buffer[]): Promise<number[][]> {
+  if (!images.length) return [];
+  const newItem: boolean[] = images.map((_, i) => i === 0);
+  for (let start = 0; start < images.length - 1; start += WINDOW - 1) {
+    const slice = images.slice(start, start + WINDOW);
+    const content: Anthropic.ContentBlockParam[] = [];
+    slice.forEach((buf, i) => {
+      content.push({ type: "text", text: `Foto ${i + 1}:` }, { type: "image", source: { type: "base64", media_type: "image/jpeg", data: buf.toString("base64") } });
+    });
+    content.push({ type: "text", text: `Gib für Foto 2 bis ${slice.length} an, ob ein neuer Artikel beginnt.` });
+    let decisions: z.infer<typeof GroupWindow>["decisions"] | null = null;
+    for (let attempt = 0; attempt < 2 && !decisions; attempt++) {
+      const r = await getClient().messages.parse({
+        model: env.anthropicModel,
+        max_tokens: 8000,
+        system: GROUP_SYSTEM,
+        messages: [{ role: "user", content }],
+        output_config: { format: zodOutputFormat(GroupWindow) },
+      });
+      if (r.stop_reason === "refusal") throw new HttpError(422, "Die KI hat die Zuordnung abgelehnt");
+      const d = r.parsed_output?.decisions ?? [];
+      if (d.length >= slice.length - 1) decisions = d;
+    }
+    if (!decisions) throw new HttpError(502, "Die KI hat die Fotos nicht vollständig zugeordnet – bitte erneut versuchen.");
+    for (const d of decisions) {
+      if (d.photo >= 2 && d.photo <= slice.length) newItem[start + d.photo - 1] = d.new_item;
+    }
+  }
+  const groups: number[][] = [];
+  newItem.forEach((isNew, i) => (isNew || !groups.length ? groups.push([i]) : groups[groups.length - 1]!.push(i)));
+  return groups;
+}
+
+/** Normalises any uploaded image into a small JPEG for grouping. */
+export async function groupingThumb(input: Buffer): Promise<Buffer> {
+  return sharp(input).rotate().resize({ width: 512, height: 512, fit: "inside" }).jpeg({ quality: 70 }).toBuffer();
+}

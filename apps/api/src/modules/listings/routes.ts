@@ -3,10 +3,10 @@ import { z } from "zod";
 import { db, nowIso } from "../../db/index.js";
 import { h, HttpError, idParam, notFound } from "../../lib/http.js";
 import { getSetting } from "../../lib/settings.js";
-import { upload } from "../../lib/upload.js";
+import { upload, uploadThumbs } from "../../lib/upload.js";
 import { rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
 import { addPhoto, createItem, getItem, itemInput, listPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
-import { aiEnabled, composeDescription, generateListing, type ListingSuggestion } from "./ai.js";
+import { aiEnabled, composeDescription, generateListing, groupingThumb, groupPhotosInOrder, type ListingSuggestion } from "./ai.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
 export const listingsRouter = Router();
@@ -95,6 +95,26 @@ async function applyRotations(photos: ReturnType<typeof listPhotos>, s: ListingS
     replacePhotoFile(photo.id, await rotateStoredPhoto(photo.file_name, r.degrees));
   }
 }
+
+/**
+ * Groups the photos of one folder into articles. Expects small previews in
+ * folder order (field `photos`); returns index groups, e.g. [[0,1,2],[3,4]].
+ * Nothing is stored – the real upload happens per group afterwards.
+ */
+listingsRouter.post("/group-photos", uploadThumbs.array("photos", 600), h(async (req, res) => {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length < 2) throw new HttpError(400, "Mindestens zwei Fotos zum Zuordnen hochladen");
+  if (!aiEnabled()) throw new HttpError(503, "ANTHROPIC_API_KEY ist nicht gesetzt – die automatische Zuordnung braucht die KI");
+  const thumbs = [];
+  for (const f of files) {
+    try {
+      thumbs.push(await groupingThumb(f.buffer));
+    } catch {
+      throw new HttpError(400, `Foto „${f.originalname}“ kann nicht gelesen werden (Format nicht unterstützt?)`);
+    }
+  }
+  res.json({ groups: await groupPhotosInOrder(thumbs) });
+}));
 
 const aiInput = z.object({ apply: z.boolean().default(false), hints: z.string().max(1000).optional() });
 

@@ -9,3 +9,13 @@ export const upload = multer({
     else cb(new HttpError(400, `Dateityp ${file.mimetype} wird nicht unterstützt`));
   },
 });
+
+/** Many small preview images (grouping a whole folder before the real upload). */
+export const uploadThumbs = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: 600 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new HttpError(400, `Dateityp ${file.mimetype} wird nicht unterstützt`));
+  },
+});
