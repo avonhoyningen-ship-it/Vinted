@@ -44,12 +44,15 @@ function tokenOf(req: Request): string | null {
 /** Paths reachable without a Clerk session (webhooks and the PC helper authenticate themselves). */
 const PUBLIC = [/^\/health$/, /^\/billing\/webhook$/, /^\/helper\//, /^\/public\//];
 /** Paths a signed-in user may use without an active subscription. */
-const NO_SUBSCRIPTION_NEEDED = [/^\/me$/, /^\/billing\//, /^\/info$/];
+const NO_SUBSCRIPTION_NEEDED = [/^\/me(\/export)?$/, /^\/billing\//, /^\/info$/];
 
 // Avoid a user upsert and status lookup on every single request.
 const known = new Set<string>();
 const accessCache = new Map<string, { ok: boolean; at: number }>();
-export const forgetAccess = (userId: string) => accessCache.delete(userId);
+export const forgetAccess = (userId: string) => {
+  accessCache.delete(userId);
+  known.delete(userId);
+};
 
 async function checkAccess(userId: string): Promise<boolean> {
   const c = accessCache.get(userId);

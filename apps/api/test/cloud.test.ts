@@ -67,6 +67,15 @@ beforeAll(async () => {
     if (req.method === "GET" && (m = /^\/storage\/v1\/object\/authenticated\/photos\/(.+)$/.exec(url))) {
       return objects.has(m[1]!) ? res.writeHead(200).end(objects.get(m[1]!)) : res.writeHead(404).end();
     }
+    if (req.method === "POST" && url === "/storage/v1/object/list/photos") {
+      const { prefix } = JSON.parse(Buffer.concat(chunks).toString()) as { prefix: string };
+      const names = [...objects.keys()].filter((k) => k.startsWith(prefix)).map((k) => ({ name: k.slice(prefix.length) }));
+      return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(names));
+    }
+    if (req.method === "DELETE" && url === "/storage/v1/object/photos") {
+      for (const k of (JSON.parse(Buffer.concat(chunks).toString()) as { prefixes: string[] }).prefixes) objects.delete(k);
+      return res.writeHead(200).end("[]");
+    }
     if (req.method === "POST" && (m = /^\/storage\/v1\/object\/sign\/photos\/(.+)$/.exec(url))) {
       if (!objects.has(m[1]!)) return res.writeHead(400).end("{}");
       return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ signedURL: `/object/sign/photos/${m[1]}?token=t` }));
@@ -252,6 +261,46 @@ describe("cloud: login, subscription, access", () => {
     const zip = await request(app).get(`/api/archive/${draft.body.item.id}/photos.zip`).set(as("alice"));
     expect(zip.status).toBe(200);
     expect(zip.headers["content-type"]).toBe("application/zip");
+  });
+
+  it("exports all data (DSGVO) and deletes the account with everything in it", async () => {
+    const sharp = (await import("sharp")).default;
+    const jpg = await sharp({ create: { width: 20, height: 20, channels: 3, background: "#33e" } }).jpeg().toBuffer();
+    const draft = await request(app).post("/api/listings/drafts").set(as("bob")).attach("photos", jpg, "b.jpg").field("data", JSON.stringify({ title: "Bobs Hoodie" }));
+    const file = draft.body.photos[0].file_name as string;
+    expect(objects.has(`user_bob/${file}`)).toBe(true);
+
+    const zip = await request(app).get("/api/me/export").set(as("bob")).buffer(true).parse((r, cb) => {
+      const chunks: Buffer[] = [];
+      r.on("data", (c: Buffer) => chunks.push(c));
+      r.on("end", () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(zip.status).toBe(200);
+    const body = zip.body as Buffer;
+    expect(body.includes(Buffer.from("daten.json"))).toBe(true);
+    expect(body.includes(Buffer.from("Bobs Hoodie"))).toBe(true);
+    expect(body.includes(Buffer.from(`fotos/${draft.body.item.id}/${file}`))).toBe(true);
+    expect(body.includes(Buffer.from("Sakura Tee von Alice"))).toBe(false);
+
+    const cancelled: string[] = [];
+    Object.assign(stripe.subscriptions, { cancel: async (id: string) => { cancelled.push(id); return { id, status: "canceled" }; } });
+    const clerkDeleted: string[] = [];
+    const { setClerkDeleter } = await import("../src/cloud/account.js");
+    setClerkDeleter(async (id) => { clerkDeleted.push(id); });
+
+    expect((await request(app).delete("/api/me").set(as("bob")).send({ confirm: "ja" })).status).toBe(400);
+    const del = await request(app).delete("/api/me").set(as("bob")).send({ confirm: "LÖSCHEN" });
+    expect(del.status).toBe(200);
+    expect(cancelled).toEqual(["sub_bob"]);
+    expect(clerkDeleted).toEqual(["user_bob"]);
+    expect([...objects.keys()].some((k) => k.startsWith("user_bob/"))).toBe(false);
+    expect([...objects.keys()].some((k) => k.startsWith("user_alice/"))).toBe(true);
+    const { db: d, withSystem, withUser } = await import("../src/db/index.js");
+    expect(await withSystem(() => d.get("SELECT id FROM app_users WHERE id = 'user_bob'"))).toBeUndefined();
+    expect(await withUser("user_bob", () => d.all("SELECT id FROM items"))).toEqual([]);
+    expect(await withUser("user_bob", () => d.all("SELECT id FROM accounts"))).toEqual([]);
+    // Alice is untouched
+    expect((await request(app).get("/api/archive").set(as("alice"))).body.total).toBeGreaterThan(0);
   });
 
   it("runs the posting assistant only through the PC helper in the cloud", async () => {

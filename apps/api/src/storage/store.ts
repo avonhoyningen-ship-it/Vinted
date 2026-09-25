@@ -16,6 +16,8 @@ export interface PhotoStore {
   localPath?(fileName: string): string;
   /** Short-lived URL the browser can load directly (only Supabase). */
   signedUrl?(fileName: string, expiresInSeconds: number): Promise<string>;
+  /** Deletes all photos of the current user (account deletion, only Supabase). Returns the number removed. */
+  deleteAll?(): Promise<number>;
 }
 
 export const safeName = (fileName: string) => {
@@ -66,6 +68,24 @@ export function supabaseStore(opts: { url: string; serviceKey: string; bucket: s
       const r = await f(`${opts.url}/storage/v1/object/authenticated/${opts.bucket}/${objectPath(name)}`, { headers: auth });
       if (!r.ok) throw new Error(`Foto nicht gefunden (HTTP ${r.status})`);
       return Buffer.from(await r.arrayBuffer());
+    },
+    async deleteAll() {
+      const prefix = encodeURIComponent(currentUserId());
+      let removed = 0;
+      for (;;) {
+        const list = await f(`${opts.url}/storage/v1/object/list/${opts.bucket}`, {
+          method: "POST", headers: { ...auth, "content-type": "application/json" },
+          body: JSON.stringify({ prefix: `${prefix}/`, limit: 1000, offset: 0 }),
+        });
+        if (!list.ok) throw new Error(`Fotos auflisten fehlgeschlagen (HTTP ${list.status})`);
+        const names = ((await list.json()) as { name: string }[]).map((o) => `${prefix}/${o.name}`);
+        if (!names.length) return removed;
+        const del = await f(`${opts.url}/storage/v1/object/${opts.bucket}`, {
+          method: "DELETE", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ prefixes: names }),
+        });
+        if (!del.ok) throw new Error(`Fotos löschen fehlgeschlagen (HTTP ${del.status})`);
+        removed += names.length;
+      }
     },
     async signedUrl(name, expiresIn) {
       const r = await f(`${opts.url}/storage/v1/object/sign/${opts.bucket}/${objectPath(name)}`, {

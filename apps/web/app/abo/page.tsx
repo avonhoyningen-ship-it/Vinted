@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { ErrorBox, PageHead } from "@/components/ui";
 import { api, dateTime } from "@/lib/api";
 import Link from "next/link";
+import { MyData } from "@/components/MyData";
 import { LEGAL } from "@/lib/legal";
 import { PRICE_LABEL } from "@/lib/mode";
 import { useApi } from "@/lib/useApi";
@@ -94,6 +95,7 @@ function AboInner() {
           )}
         </div>
       )}
+      {me && <MyData />}
     </div>
   );
 }

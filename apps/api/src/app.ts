@@ -8,6 +8,7 @@ import { cloudAssistRouter, connectAccountViaHelper, helperRouter, helperTokensR
 import { vintedClient } from "./vinted/vintedClient.js";
 import { cloudAuth } from "./cloud/auth.js";
 import { legalRouter } from "./cloud/legal.js";
+import { accountRouter } from "./cloud/account.js";
 import { billingRouter, billingWebhook, meHandler } from "./cloud/billing.js";
 import { accountsRouter } from "./modules/accounts/routes.js";
 import { archiveRouter } from "./modules/archive/routes.js";
@@ -42,6 +43,7 @@ export function createApp() {
     // Clerk session + active subscription; every request runs in its user's database scope.
     app.use("/api", cloudAuth);
     app.get("/api/me", h(meHandler));
+    app.use("/api/me", accountRouter);
     app.use("/api/billing", billingRouter);
     app.use("/api/public", legalRouter);
     // PC helper: pairing keys (dashboard), job polling (helper, own key), Vinted via helper.
