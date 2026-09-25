@@ -30,7 +30,7 @@ beforeAll(async () => {
   vi.resetModules();
   db = await import("../src/db/index.js");
   const { applyPgSchema, postgresDriver } = await import("../src/db/postgres.js");
-  const { pgliteConnector } = await import("./support/pglite.js");
+  const { testConnector: pgliteConnector } = await import("./support/testDb.js");
   const connector = await pgliteConnector();
   await applyPgSchema(connector);
   db.setDriver(postgresDriver(connector, { scope: db.scopeUserId }));

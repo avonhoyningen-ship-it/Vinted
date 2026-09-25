@@ -61,6 +61,11 @@ function lazyPostgres(url: string): Driver {
     exec: async (sql) => (await get()).exec(sql),
     tx: async (fn) => (await get()).tx(fn),
     userIds: async () => (await get()).userIds!(),
+    withLock: async (name, fn) => (await get()).withLock!(name, fn),
+    pubsub: {
+      publish: async (c, p) => (await get()).pubsub!.publish(c, p),
+      subscribe: async (c, cb) => (await get()).pubsub!.subscribe(c, cb),
+    },
     close: async () => { if (ready) await (await ready).close(); },
   };
 }
@@ -97,6 +102,15 @@ export const db = {
     return driver.tx(fn);
   },
 };
+
+/** Runs fn on only one API instance at a time (Postgres); locally always. */
+export async function withLock(name: string, fn: () => Promise<unknown>): Promise<boolean> {
+  if (!driver.withLock) {
+    await fn();
+    return true;
+  }
+  return driver.withLock(name, fn);
+}
 
 export const nowIso = () => new Date().toISOString();
 

@@ -34,7 +34,9 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
   EXECUTE format('GRANT app_user TO %I', current_user);
 EXCEPTION WHEN others THEN NULL; END $$;
-GRANT USAGE ON SCHEMA public TO app_user;
+DO $$ BEGIN
+  EXECUTE format('GRANT USAGE ON SCHEMA %I TO app_user', current_schema());
+END $$;
 
 -- ---------- SaaS: users, subscriptions, PC helper ----------
 CREATE TABLE IF NOT EXISTS app_users (
@@ -337,5 +339,7 @@ DROP POLICY IF EXISTS own_row ON app_users;
 CREATE POLICY own_row ON app_users TO app_user USING (id = app_uid());
 GRANT SELECT ON app_users TO app_user;
 
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
+DO $$ BEGIN
+  EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO app_user', current_schema());
+END $$;
 `;

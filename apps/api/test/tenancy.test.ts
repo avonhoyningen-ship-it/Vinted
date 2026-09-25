@@ -12,7 +12,7 @@ describe("row level security (Postgres)", () => {
 
   beforeAll(async () => {
     const { applyPgSchema, postgresDriver } = await import("../src/db/postgres.js");
-    const { pgliteConnector } = await import("./support/pglite.js");
+    const { testConnector: pgliteConnector } = await import("./support/testDb.js");
     const idx = await import("../src/db/index.js");
     withUser = idx.withUser;
     withSystem = idx.withSystem;

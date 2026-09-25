@@ -31,5 +31,8 @@ export async function pgliteConnector(): Promise<PgConnector> {
       };
     },
     end: () => pg.close(),
+    async listen(channel, cb) {
+      await pg.listen(channel, cb);
+    },
   };
 }

@@ -8,7 +8,7 @@ vintedClient.useAdapter(mockAdapter, 0);
 if (process.env.TEST_DB === "postgres") {
   const { setDriver, scopeUserId, withSystem, db } = await import("../../src/db/index.js");
   const { applyPgSchema, postgresDriver } = await import("../../src/db/postgres.js");
-  const { pgliteConnector } = await import("./pglite.js");
+  const { testConnector: pgliteConnector } = await import("./testDb.js");
   const connector = await pgliteConnector();
   await applyPgSchema(connector);
   // Tests act as one signed-up user unless they choose a scope themselves.

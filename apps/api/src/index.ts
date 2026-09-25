@@ -3,6 +3,7 @@ import { createApp } from "./app.js";
 import { startWorkers } from "./workers/scheduler.js";
 import { applyBrandRules } from "./modules/listings/brandRules.js";
 import { forEachUser } from "./db/index.js";
+import { startCluster } from "./lib/cluster.js";
 
 if (env.appMode === "cloud") {
   const missing = [
@@ -39,6 +40,8 @@ const server = app.listen(env.port, host, () => {
   console.log(`[api] http://localhost:${env.port}/api${host === "127.0.0.1" ? "  (ohne Passwort: nur auf diesem PC erreichbar)" : ""}`);
 });
 const stopWorkers = startWorkers();
+// Several API instances (cloud): share live events and helper jobs.
+void startCluster().catch((e) => console.warn("[cluster]", (e as Error).message));
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {

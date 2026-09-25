@@ -57,10 +57,8 @@ export async function connectAccountViaHelper(accountId: number) {
 
 /** Posting assistant in the cloud: the helper drives the Chrome on the user's PC. */
 export const cloudAssistRouter = Router();
-const assistStatus = new Map<string, AssistStatus>();
-
 cloudAssistRouter.get("/status", h(async (_req, res) => {
-  res.json(assistStatus.get(res.locals.userId) ?? { state: "idle", itemId: null, title: null, position: 0, total: 0, filled: [], missing: [], message: null, done: [], fields: [], tabs: [] });
+  res.json(eventBus.lastAssist.get(res.locals.userId) ?? { state: "idle", itemId: null, title: null, position: 0, total: 0, filled: [], missing: [], message: null, done: [], fields: [], tabs: [] });
 }));
 
 cloudAssistRouter.post("/start", h(async (req, res) => {
@@ -124,9 +122,7 @@ helperRouter.post("/events", h(async (req, res) => {
   const { events } = z.object({ events: z.array(helperEvent).max(50) }).parse(req.body);
   for (const e of events) {
     if (e.type === "assist.status") {
-      const status = e.status as unknown as AssistStatus;
-      assistStatus.set(res.locals.userId, status);
-      eventBus.publish({ type: "assist", status });
+      eventBus.publish({ type: "assist", status: e.status as unknown as AssistStatus });
     } else {
       await getAccount(e.accountId);
       await linkUploadedListing({ itemId: e.itemId, accountId: e.accountId }, e.url);

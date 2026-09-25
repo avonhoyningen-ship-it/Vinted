@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import { currentUserId, db, nowIso, withSystem } from "../db/index.js";
+import { currentUserId, db, nowIso, withSystem, withUser } from "../db/index.js";
+import { broadcast, onBroadcast } from "../lib/cluster.js";
 import { HttpError } from "../lib/http.js";
 
 /**
@@ -48,12 +49,33 @@ export async function helperStatus() {
 
 // ---------- jobs ----------
 
-interface Waiter { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }
+interface Waiter { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout; poll: NodeJS.Timeout }
 const waiters = new Map<number, Waiter>();
 const pollers = new Map<string, Set<() => void>>();
 
 function wake(userId: string) {
   for (const w of pollers.get(userId) ?? []) w();
+}
+
+// Several API instances: the helper may be connected to another one.
+onBroadcast("ask_jobs", (d) => wake(String((d as { userId: string }).userId)));
+onBroadcast("ask_job_done", (d) => {
+  const { id, userId } = d as { id: number; userId: string };
+  if (waiters.has(id)) void withUser(userId, () => settleFromDb(id));
+});
+
+/** Resolves a local waiter from the stored job result (result arrived at another instance). */
+async function settleFromDb(id: number) {
+  const w = waiters.get(id);
+  if (!w) return;
+  const row = await db.get<{ status: string; result: string | null; error: string | null }>("SELECT status, result, error FROM helper_jobs WHERE id = ?", [id]);
+  if (!row || (row.status !== "done" && row.status !== "failed")) return;
+  clearTimeout(w.timer);
+  clearInterval(w.poll);
+  waiters.delete(id);
+  if (row.status === "done") return w.resolve(row.result ? JSON.parse(row.result) : null);
+  const [code, ...msg] = (row.error ?? "|Fehler im PC-Helfer").split("|");
+  w.reject(Object.assign(new HelperError(msg.join("|") || "Fehler im PC-Helfer", code || "helper"), { remoteCode: code || undefined }));
 }
 
 /**
@@ -66,19 +88,26 @@ export async function runOnHelper<T = unknown>(kind: string, payload: unknown, o
   }
   const userId = currentUserId();
   const id = await db.insert("INSERT INTO helper_jobs (kind, payload) VALUES (?, ?)", [kind, JSON.stringify(payload ?? {})]);
-  if (opts.wait === false) {
+  const notify = () => {
     wake(userId);
+    void broadcast("ask_jobs", { userId });
+  };
+  if (opts.wait === false) {
+    notify();
     return id as T;
   }
   const result = new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      clearInterval(poll);
       waiters.delete(id);
-      void db.run("UPDATE helper_jobs SET status = 'failed', error = 'Zeitüberschreitung', finished_at = ? WHERE id = ? AND status IN ('pending','running')", [nowIso(), id]);
+      void db.run("UPDATE helper_jobs SET status = 'failed', error = 'timeout|Zeitüberschreitung', finished_at = ? WHERE id = ? AND status IN ('pending','running')", [nowIso(), id]);
       reject(new HelperError("Der PC-Helfer hat nicht rechtzeitig geantwortet.", "timeout"));
     }, opts.timeoutMs ?? 120_000);
-    waiters.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
+    // Fallback if a notification between instances gets lost.
+    const poll = setInterval(() => void settleFromDb(id).catch(() => {}), 3000);
+    waiters.set(id, { resolve: resolve as (v: unknown) => void, reject, timer, poll });
   });
-  wake(userId);
+  notify();
   return result;
 }
 
@@ -102,15 +131,20 @@ export async function pollJobs(tokenId: number, signal?: AbortSignal) {
   let jobs = await claim();
   if (jobs.length) return jobs;
   const userId = currentUserId();
+  const set = pollers.get(userId) ?? new Set();
+  pollers.set(userId, set);
   await new Promise<void>((resolve) => {
-    const set = pollers.get(userId) ?? new Set();
-    pollers.set(userId, set);
     const done = () => {
       clearTimeout(timer);
+      clearInterval(check);
       set.delete(done);
       resolve();
     };
     const timer = setTimeout(done, POLL_WAIT_MS);
+    // Fallback for jobs created on another instance whose notification got lost.
+    const check = setInterval(() => {
+      void db.get("SELECT 1 AS x FROM helper_jobs WHERE status = 'pending' LIMIT 1").then((r) => r && done()).catch(() => {});
+    }, 5000);
     set.add(done);
     signal?.addEventListener("abort", done);
   });
@@ -128,9 +162,12 @@ export async function completeJob(id: number, r: JobResult) {
   const w = waiters.get(id);
   if (w) {
     clearTimeout(w.timer);
+    clearInterval(w.poll);
     waiters.delete(id);
     if (r.ok) w.resolve(r.result);
     else w.reject(Object.assign(new HelperError(r.error ?? "Fehler im PC-Helfer", r.code ?? "helper"), { remoteCode: r.code }));
+  } else {
+    void broadcast("ask_job_done", { id, userId: currentUserId() });
   }
   return true;
 }

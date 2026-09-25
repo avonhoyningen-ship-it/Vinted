@@ -1,5 +1,5 @@
 import { env } from "../config/env.js";
-import { db, forEachUser } from "../db/index.js";
+import { db, forEachUser, withLock } from "../db/index.js";
 import { syncAccount } from "../modules/accounts/sync.js";
 import { runDueActions, scheduleStaleListingActions } from "../modules/automations/engine.js";
 import { processDueQueue } from "../modules/listings/queue.js";
@@ -44,10 +44,11 @@ export async function pollAccounts(force = false) {
 export function startWorkers() {
   if (env.disableWorkers) return () => {};
   const stops = [
-    loop("poll", 60_000, () => forEachUser(() => pollAccounts())),
-    loop("publish", 60_000, () => forEachUser(processDueQueue), 10_000),
-    loop("actions", 60_000, () => forEachUser(() => runDueActions())),
-    loop("stale", 60 * 60_000, () => forEachUser(() => scheduleStaleListingActions()), 30_000),
+    // With several API instances only one runs each job at a time (Postgres advisory lock).
+    loop("poll", 60_000, () => withLock("jobs:poll", () => forEachUser(() => pollAccounts()))),
+    loop("publish", 60_000, () => withLock("jobs:publish", () => forEachUser(processDueQueue)), 10_000),
+    loop("actions", 60_000, () => withLock("jobs:actions", () => forEachUser(() => runDueActions()))),
+    loop("stale", 60 * 60_000, () => withLock("jobs:stale", () => forEachUser(() => scheduleStaleListingActions())), 30_000),
   ];
   console.log(`[workers] gestartet (Polling alle ${env.pollIntervalMinutes} min, Veröffentlichung alle ${env.publishIntervalMinutes} min)`);
   return () => stops.forEach((s) => s());

@@ -23,7 +23,7 @@ beforeAll(async () => {
   vi.resetModules();
   const { setDriver, scopeUserId } = await import("../src/db/index.js");
   const { applyPgSchema, postgresDriver } = await import("../src/db/postgres.js");
-  const { pgliteConnector } = await import("./support/pglite.js");
+  const { testConnector: pgliteConnector } = await import("./support/testDb.js");
   const connector = await pgliteConnector();
   await applyPgSchema(connector);
   setDriver(postgresDriver(connector, { scope: scopeUserId })); // no default user: like production
@@ -154,6 +154,25 @@ describe("cloud: login, subscription, access", () => {
     expect((await request(app).get("/api/archive").set(as("alice"))).status).toBe(200);
     // Already subscribed → no second checkout
     expect((await request(app).post("/api/billing/checkout").set(as("alice")).send(CONSENT)).status).toBe(409);
+  });
+
+  it("opens the live stream directly with a short-lived token in the URL (only there)", async () => {
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((r) => server.once("listening", r));
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    try {
+      const ctrl = new AbortController();
+      const ok = await fetch(`${base}/api/events/stream?token=tok_alice`, { signal: ctrl.signal, headers: { origin: "https://app.example.com" } });
+      expect(ok.status).toBe(200);
+      expect(ok.headers.get("content-type")).toMatch(/text\/event-stream/);
+      expect(ok.headers.get("access-control-allow-origin")).toBe("https://app.example.com");
+      ctrl.abort();
+      expect((await fetch(`${base}/api/events/stream`)).status).toBe(401);
+      expect((await fetch(`${base}/api/archive?token=tok_alice`)).status).toBe(401); // query tokens only for the stream
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 
   it("keeps every user's data separate", async () => {

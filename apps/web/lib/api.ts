@@ -64,6 +64,18 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
 export const photoUrl = (file: string | null | undefined) => (file ? `${API_URL}/api/photos/${file}` : null);
 export const eventStreamUrl = () => `${API_URL}/api/events/stream`;
 
+/**
+ * Cloud: the live stream goes straight to the API server (no time limit of the
+ * Vercel forwarding) with a short-lived Clerk token – checked only when connecting.
+ */
+export async function liveStreamUrl(): Promise<{ url: string; direct: boolean }> {
+  if (CLOUD && DIRECT_API_URL) {
+    const token = await clerkToken();
+    return { url: `${DIRECT_API_URL}/api/events/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`, direct: true };
+  }
+  return { url: eventStreamUrl(), direct: false };
+}
+
 export function euro(cents: number | null | undefined, currency = "EUR") {
   if (cents === null || cents === undefined) return "–";
   return new Intl.NumberFormat("de-DE", { style: "currency", currency }).format(cents / 100);

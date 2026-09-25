@@ -19,6 +19,8 @@ export interface PgConnection {
 export interface PgConnector {
   connect(): Promise<PgConnection>;
   end(): Promise<void>;
+  /** LISTEN on a channel (own connection); notifications arrive via cb. */
+  listen?(channel: string, cb: (payload: string) => void): Promise<void>;
 }
 
 export const SYSTEM_SCOPE = "__system__";
@@ -169,6 +171,33 @@ export function postgresDriver(connector: PgConnector, opts: { scope: () => stri
         conn.release();
       }
     },
+    async withLock(name, fn) {
+      // Session-level advisory lock on one pooled connection, held while fn runs.
+      const conn = await connector.connect();
+      try {
+        const got = (await conn.query("SELECT pg_try_advisory_lock(hashtext($1)) AS ok", [name])).rows[0]?.ok;
+        if (!got) return false;
+        try {
+          await fn();
+        } finally {
+          await conn.query("SELECT pg_advisory_unlock(hashtext($1))", [name]).catch(() => {});
+        }
+        return true;
+      } finally {
+        conn.release();
+      }
+    },
+    pubsub: connector.listen ? {
+      async publish(channel, payload) {
+        const conn = await connector.connect();
+        try {
+          await conn.query("SELECT pg_notify($1, $2)", [channel, payload]);
+        } finally {
+          conn.release();
+        }
+      },
+      subscribe: (channel, cb) => connector.listen!(channel, cb),
+    } : undefined,
     async close() {
       await connector.end();
     },
@@ -186,13 +215,15 @@ export async function applyPgSchema(connector: PgConnector) {
 }
 
 /** node-postgres pool (Supabase). BIGINT/NUMERIC come back as JS numbers like with SQLite. */
-export async function nodePgConnector(connectionString: string, caCert: string | null = null): Promise<PgConnector> {
+export async function nodePgConnector(connectionString: string, caCert: string | null = null, extra: { searchPath?: string } = {}): Promise<PgConnector> {
   const pg = (await import("pg")).default;
   pg.types.setTypeParser(20, (v) => Number(v)); // int8 (ids, COUNT)
   pg.types.setTypeParser(1700, (v) => Number(v)); // numeric (AVG, SUM)
   const pool = new pg.Pool({
     connectionString,
     max: Number(process.env.DB_POOL_SIZE ?? 10),
+    // Tests: one schema per test file.
+    options: extra.searchPath ? `-c search_path=${extra.searchPath}` : undefined,
     // Supabase requires TLS. Its certificates are signed by Supabase's own CA: with DATABASE_CA_CERT
     // the server is verified, without it the connection is encrypted but not verified.
     ssl: /localhost|127\.0\.0\.1/.test(connectionString) ? undefined : caCert ? { ca: caCert } : { rejectUnauthorized: false },
@@ -200,11 +231,37 @@ export async function nodePgConnector(connectionString: string, caCert: string |
   if (!caCert && !/localhost|127\.0\.0\.1/.test(connectionString)) {
     console.warn("[db] DATABASE_CA_CERT fehlt – TLS-Verbindung zu Postgres wird nicht verifiziert.");
   }
+  // One extra connection for LISTEN, re-established after network errors.
+  const handlers = new Map<string, ((payload: string) => void)[]>();
+  let listener: import("pg").Client | null = null;
+  let connecting: Promise<void> | null = null;
+  const ensureListener = () => (connecting ??= (async () => {
+    const client = new pg.Client({ connectionString, ssl: pool.options.ssl, options: pool.options.options });
+    client.on("notification", (n) => { for (const cb of handlers.get(n.channel) ?? []) cb(n.payload ?? ""); });
+    client.on("error", () => {
+      listener = null;
+      connecting = null;
+      setTimeout(() => void ensureListener().catch(() => {}), 5000);
+    });
+    await client.connect();
+    for (const ch of handlers.keys()) await client.query(`LISTEN "${ch}"`);
+    listener = client;
+  })().catch((e) => { connecting = null; throw e; }));
   return {
     connect: async () => {
       const c = await pool.connect();
       return { query: (t, v) => c.query(t, v as unknown[]), release: () => c.release() };
     },
-    end: () => pool.end(),
+    end: async () => {
+      await listener?.end().catch(() => {});
+      await pool.end();
+    },
+    async listen(channel, cb) {
+      if (!/^[a-z_]+$/.test(channel)) throw new Error("invalid channel");
+      const first = !handlers.has(channel);
+      handlers.set(channel, [...(handlers.get(channel) ?? []), cb]);
+      await ensureListener();
+      if (first) await listener!.query(`LISTEN "${channel}"`);
+    },
   };
 }
