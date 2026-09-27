@@ -23,6 +23,31 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** Local: create/update the account and take the login from the Vinted-Chrome – no copying needed. */
+  async function fromChrome() {
+    setBusy(true);
+    setError(null);
+    try {
+      let account = existing;
+      if (!account) {
+        const body = { name, domain, pollingEnabled: polling, publishIntervalMinutes: interval ? Number(interval) : null, chromePort: chromePort ? Number(chromePort) : null };
+        account = (await api<{ account: Account }>("/accounts", { method: "POST", json: body })).account;
+        setCreated(account);
+      }
+      const r = await api<{ error: string | null; account: Account }>(`/accounts/${account.id}/chrome-login`, { method: "POST" });
+      if (r.error) {
+        setError(`Login übernommen, aber Verbindung fehlgeschlagen: ${r.error}`);
+        return;
+      }
+      toast({ kind: "info", text: `Verbunden als @${r.account.username} (${r.account.followers} Follower)` });
+      onSaved();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save() {
     setBusy(true);
     setError(null);
@@ -67,6 +92,13 @@ export function AccountForm({ initial, onSaved, onCancel }: { initial?: Account;
           der Helfer übernimmt die Anmeldung aus deinem Vinted-Chrome und behält sie auf deinem PC.
         </div>
       ) : (<>
+      <div className="alert info stack" style={{ gap: 6 }}>
+        <span>Am einfachsten: im Vinted-Chrome („Chrome fuer Vinted starten.bat“) bei <strong>{domain}</strong> einloggen, dann hier klicken – der Login wird automatisch übernommen.</span>
+        <div><button className="btn primary small" type="button" disabled={busy || !name.trim()} onClick={fromChrome}>
+          {busy ? "Hole Login…" : "Login aus Vinted-Chrome übernehmen"}
+        </button>{!name.trim() && <span className="small muted"> (zuerst einen Anzeigenamen eingeben)</span>}</div>
+      </div>
+      <div className="small muted">Oder von Hand eintragen:</div>
       <label className="field">access_token_web {initial?.session_hint && <span className="muted">(gespeichert: {initial.session_hint} – leer lassen zum Behalten)</span>}
         <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder="beginnt mit eyJ…" />
       </label>

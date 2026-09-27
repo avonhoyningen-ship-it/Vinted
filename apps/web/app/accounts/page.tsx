@@ -18,6 +18,21 @@ export default function AccountsPage() {
   const [syncing, setSyncing] = useState<number | null>(null);
   const [connecting, setConnecting] = useState<number | null>(null);
 
+  /** Local: take the login (cookies) straight from the Vinted-Chrome on this PC. */
+  async function chromeLogin(id: number) {
+    setConnecting(id);
+    try {
+      const r = await api<{ account: Account; error: string | null }>(`/accounts/${id}/chrome-login`, { method: "POST" });
+      if (r.error) toast({ kind: "error", text: `Login übernommen, aber Abruf fehlgeschlagen: ${r.error}` });
+      else toast({ kind: "info", text: `Login aus Chrome übernommen${r.account.username ? ` – @${r.account.username}` : ""}` });
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    } finally {
+      setConnecting(null);
+      void reload();
+    }
+  }
+
   /** Cloud: the PC helper takes the login from the Vinted-Chrome. */
   async function connectHelper(id: number) {
     setConnecting(id);
@@ -75,6 +90,12 @@ export default function AccountsPage() {
             <div className="row small muted">Letzter Sync {relative(a.last_sync_at)}{!a.polling_enabled && " · Polling pausiert"}</div>
             <div className="row">
               <button className="btn small" disabled={syncing === a.id || !a.has_session} onClick={() => sync(a.id)}>{syncing === a.id ? "Synchronisiere…" : "Jetzt synchronisieren"}</button>
+              {!CLOUD && (
+                <button className="btn small" disabled={connecting === a.id} onClick={() => chromeLogin(a.id)}
+                  title="Holt access_token_web und refresh_token_web aus dem Vinted-Chrome (dort bei Vinted eingeloggt sein)">
+                  {connecting === a.id ? "Hole Login…" : "Login aus Chrome holen"}
+                </button>
+              )}
               {CLOUD && (
                 <button className="btn small" disabled={connecting === a.id} onClick={() => connectHelper(a.id)}>
                   {connecting === a.id ? "Verbinde…" : a.has_session ? "Login neu übernehmen" : "Mit PC-Helfer verbinden"}

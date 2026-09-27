@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { db } from "../../db/index.js";
-import { h, idParam } from "../../lib/http.js";
+import { env } from "../../config/env.js";
+import { h, HttpError, idParam } from "../../lib/http.js";
+import { importChromeLogin } from "./chromeLogin.js";
 import {
   accountInput, accountPatch, createAccount, deleteAccount, disconnectAccount, getAccount, listAccounts, toPublic, updateAccount, VINTED_DOMAINS,
 } from "./repo.js";
@@ -60,6 +62,20 @@ accountsRouter.patch("/:id", h(async (req, res) => {
 }));
 
 /** Verifies the session and syncs listings, sales, favourites and messages. */
+/** Local dashboard: takes the login from the Vinted-Chrome and syncs right away. */
+accountsRouter.post("/:id/chrome-login", h(async (req, res) => {
+  if (env.appMode === "cloud") throw new HttpError(400, "In der Cloud-Version übernimmt der PC-Helfer den Login („Mit PC-Helfer verbinden“).");
+  const id = idParam(req);
+  await importChromeLogin(id);
+  let error: string | null = null;
+  try {
+    await syncAccount(id);
+  } catch (e) {
+    error = (e as Error).message;
+  }
+  res.json({ account: toPublic(await getAccount(id)), error });
+}));
+
 accountsRouter.post("/:id/sync", h(async (req, res) => {
   const id = idParam(req);
   const result = await syncAccount(id);

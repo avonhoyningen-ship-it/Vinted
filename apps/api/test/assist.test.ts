@@ -239,4 +239,36 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       env.chromeDebugUrl = old;
     }
   }, 60_000);
+
+  it("takes the Vinted login from the Vinted-Chrome (button + automatic renewal)", async () => {
+    // Fake Vinted (this file loads the app fresh, so set it on that copy)
+    const { vintedClient } = await import("../src/vinted/vintedClient.js");
+    vintedClient.useAdapter((await import("./support/mockAdapter.js")).mockAdapter, 0);
+    const b = await chromium.connectOverCDP(process.env.CHROME_DEBUG_URL!);
+    const ctx = b.contexts()[0]!;
+    const acc = (await request(app).post("/api/accounts").send({ name: "Chrome-Login", domain: "vinted.at" })).body.account;
+    // Not logged in at vinted.at yet → clear message
+    const missing = await request(app).post(`/api/accounts/${acc.id}/chrome-login`);
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toMatch(/niemand bei vinted\.at eingeloggt/);
+
+    await ctx.addCookies([
+      { name: "access_token_web", value: "token-from-chrome-abcd", url: "https://www.vinted.at/" },
+      { name: "refresh_token_web", value: "refresh-from-chrome", url: "https://www.vinted.at/" },
+    ]);
+    const ok = await request(app).post(`/api/accounts/${acc.id}/chrome-login`);
+    expect(ok.status).toBe(200);
+    expect(ok.body.error).toBeNull();
+    expect(ok.body.account).toMatchObject({ status: "connected", session_hint: "••••abcd", has_refresh_token: true });
+
+    // Expired login (account on "error") → the background sync takes the current one from the Chrome.
+    const expired = await request(app).patch(`/api/accounts/${acc.id}`).send({ sessionToken: "invalid-expired-token" });
+    expect(expired.body.account.status).toBe("error");
+    await ctx.addCookies([{ name: "access_token_web", value: "token-renewed-wxyz", url: "https://www.vinted.at/" }]);
+    const { pollAccounts } = await import("../src/workers/scheduler.js");
+    await pollAccounts(true);
+    const after = (await request(app).get(`/api/accounts/${acc.id}`)).body.account;
+    expect(after).toMatchObject({ status: "connected", session_hint: "••••wxyz" });
+    await b.close();
+  }, 60_000);
 });
