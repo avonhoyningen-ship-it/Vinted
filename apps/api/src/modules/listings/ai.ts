@@ -141,7 +141,10 @@ const WINDOW = 30;
 export async function groupPhotosInOrder(images: Buffer[]): Promise<number[][]> {
   if (!images.length) return [];
   const newItem: boolean[] = images.map((_, i) => i === 0);
-  for (let start = 0; start < images.length - 1; start += WINDOW - 1) {
+  const starts: number[] = [];
+  for (let start = 0; start < images.length - 1; start += WINDOW - 1) starts.push(start);
+  // Windows are independent: a few run at the same time, so big folders don't take minutes.
+  const one = async (start: number) => {
     const slice = images.slice(start, start + WINDOW);
     const content: Anthropic.ContentBlockParam[] = [];
     slice.forEach((buf, i) => {
@@ -165,7 +168,8 @@ export async function groupPhotosInOrder(images: Buffer[]): Promise<number[][]> 
     for (const d of decisions) {
       if (d.photo >= 2 && d.photo <= slice.length) newItem[start + d.photo - 1] = d.new_item;
     }
-  }
+  };
+  for (let i = 0; i < starts.length; i += 4) await Promise.all(starts.slice(i, i + 4).map(one));
   const groups: number[][] = [];
   newItem.forEach((isNew, i) => (isNew || !groups.length ? groups.push([i]) : groups[groups.length - 1]!.push(i)));
   return groups;

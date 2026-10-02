@@ -18,7 +18,8 @@ const nextConfig: NextConfig = {
   turbopack: { root: path.resolve(__dirname, "../..") },
   outputFileTracingRoot: path.resolve(__dirname, "../.."),
   // Photo uploads (up to 20 × 25 MB) pass through the /api rewrite.
-  experimental: { proxyClientMaxBodySize: "500mb" },
+  // AI requests (sorting a folder of photos) can take minutes; the default proxy timeout is 30 s.
+  experimental: { proxyClientMaxBodySize: "500mb", proxyTimeout: 20 * 60_000 },
   // Browser → same origin /api → API server. In production Caddy routes /api
   // directly; this rewrite covers development and setups without Caddy.
   async rewrites() {
