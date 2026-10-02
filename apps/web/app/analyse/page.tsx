@@ -12,7 +12,8 @@ interface Row {
   views: number; favourites: number; photoCount: number; coverPhoto: string | null; marketCents: number | null; hasVintedId: boolean;
   score: number; daysOnline: number; viewsPerDay: number; favouriteRate: number; issues: Issue[];
 }
-interface Analysis { listings: Row[]; issueCounts: Record<string, number>; insights: { kind: "good" | "bad" | "info"; text: string }[] }
+interface Analysis { listings: Row[]; issueCounts: Record<string, number>; insights: { kind: "good" | "bad" | "info"; text: string }[];
+  hidden?: { unlinked: number; accounts: { name: string; count: number }[] } }
 interface AiReview {
   summary: string; reasons: string[]; improvements: { area: string; tip: string }[]; better_title: string | null; suggested_price_eur: number | null;
 }
@@ -58,6 +59,14 @@ export default function AnalysePage() {
         <button className="btn primary" onClick={() => setReprice(true)}>💸 Preis senken{selected.length ? ` (${selected.length})` : "…"}</button>
       </PageHead>
       <ErrorBox error={error} />
+
+      {data?.hidden && (data.hidden.unlinked > 0 || data.hidden.accounts.length > 0) && (
+        <div className="card muted" style={{ marginBottom: 16, fontSize: 13 }}>
+          Hier stehen nur Artikel, die beim letzten Abgleich wirklich in deinem Vinted-Shop waren.
+          {data.hidden.unlinked > 0 && <> {data.hidden.unlinked} Artikel ohne Vinted-Link ausgeblendet (beim nächsten Abgleich werden sie über den Titel zugeordnet).</>}
+          {data.hidden.accounts.map((a) => <span key={a.name}> {a.count} Artikel von „{a.name}“ ausgeblendet – Account nicht verbunden.</span>)}
+        </div>
+      )}
 
       {data && (
         <div className="grid grid-2" style={{ marginBottom: 16 }}>

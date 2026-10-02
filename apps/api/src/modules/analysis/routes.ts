@@ -7,7 +7,7 @@ import { h, HttpError, idParam } from "../../lib/http.js";
 import { getItem, getListing, listPhotos } from "../archive/repo.js";
 import { getClient, modelImage } from "../listings/ai.js";
 import { similarExamples } from "../pricing/engine.js";
-import { diagnose, insights, type ListingFacts } from "./diagnose.js";
+import { diagnose, insights, ON_VINTED, type ListingFacts } from "./diagnose.js";
 
 export const analysisRouter = Router();
 
@@ -43,9 +43,16 @@ const ACTIVE = `
   FROM listings l JOIN items i ON i.id = l.item_id JOIN accounts a ON a.id = l.account_id
   WHERE l.status = 'active'`;
 
+
 /** All active listings with their diagnosis (worst first) and insights over the whole history. */
 analysisRouter.get("/", h(async (_req, res) => {
-  const rows = await db.all<Row>(`${ACTIVE} ORDER BY l.listed_at`);
+  const rows = await db.all<Row>(`${ACTIVE.replace("l.status = 'active'", ON_VINTED)} ORDER BY l.listed_at`);
+  // Active in the archive but not (verifiably) in the shop: left out, the page says why.
+  const hidden = await db.all<{ reason: string; account_name: string; c: number }>(`
+    SELECT CASE WHEN a.status <> 'connected' THEN 'account' ELSE 'unlinked' END AS reason, a.name AS account_name, COUNT(*) AS c
+    FROM listings l JOIN accounts a ON a.id = l.account_id
+    WHERE l.status = 'active' AND NOT (${ON_VINTED})
+    GROUP BY CASE WHEN a.status <> 'connected' THEN 'account' ELSE 'unlinked' END, a.name`);
   const listings = [];
   for (const r of rows) {
     const f = await facts(r);
@@ -63,6 +70,10 @@ analysisRouter.get("/", h(async (_req, res) => {
   res.json({
     listings,
     issueCounts: counts,
+    hidden: {
+      unlinked: hidden.filter((x) => x.reason === "unlinked").reduce((n, x) => n + Number(x.c), 0),
+      accounts: hidden.filter((x) => x.reason === "account").map((x) => ({ name: x.account_name, count: Number(x.c) })),
+    },
     insights: insights(history.map((h) => ({ status: h.status, listedAt: h.listed_at, soldAt: h.sold_at, priceCents: h.price_cents, category: h.category, brand: h.brand }))),
   });
 }));

@@ -193,13 +193,14 @@ interface ApiPhoto { url?: string; full_size_url?: string }
 export interface ApiItem {
   id: number; title: string; description?: string; price?: Price; currency?: string; brand_title?: string; size_title?: string;
   status?: string; is_closed?: boolean | number; is_hidden?: boolean | number; is_draft?: boolean | number; is_reserved?: boolean;
+  is_visible?: boolean | number; item_closing_action?: string | null;
   favourite_count?: number; view_count?: number; url?: string; path?: string; photos?: ApiPhoto[]; photo?: ApiPhoto | null;
   created_at_ts?: string; catalog_id?: number;
 }
 
 function listingStatus(i: ApiItem): RemoteListingStatus {
-  if (i.is_closed) return "sold";
-  if (i.is_hidden) return "hidden";
+  if (i.is_closed || i.item_closing_action === "sold") return "sold";
+  if (i.is_hidden || i.item_closing_action || i.is_visible === false || i.is_visible === 0) return "hidden";
   return "active";
 }
 

@@ -63,6 +63,9 @@ async function importRemoteListing(account: AccountRow, r: RemoteListing): Promi
   });
 }
 
+const normTitle = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const sameTitle = (a: string, b: string) => normTitle(a) === normTitle(b);
+
 async function listingByVintedId(accountId: number, vintedItemId: string | null): Promise<ListingRow | undefined> {
   if (!vintedItemId) return undefined;
   return db.get<ListingRow>("SELECT * FROM listings WHERE account_id = ? AND vinted_item_id = ?", [accountId, vintedItemId]);
@@ -90,9 +93,19 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
     // --- listings ---
     const remote = await vintedClient.fetchOwnListings(key, session);
     const seen = new Set<string>();
+    // Listings recorded without a Vinted link (e.g. "als hochgeladen markiert" without URL):
+    // matched to the shop's items by title, so they get linked instead of imported twice.
+    const unlinked = await db.all<ListingRow>("SELECT * FROM listings WHERE account_id = ? AND status = 'active' AND vinted_item_id IS NULL ORDER BY listed_at", [accountId]);
     for (const r of remote) {
       seen.add(r.vintedItemId);
-      const local = await listingByVintedId(accountId, r.vintedItemId);
+      let local = await listingByVintedId(accountId, r.vintedItemId);
+      if (!local) {
+        const i = unlinked.findIndex((u) => sameTitle(u.title, r.title));
+        if (i >= 0) {
+          local = unlinked.splice(i, 1)[0]!;
+          await db.run("UPDATE listings SET vinted_item_id = ?, url = ? WHERE id = ?", [r.vintedItemId, r.url, local.id]);
+        }
+      }
       if (!local) {
         // Only active listings are imported; sold/hidden ones we never saw are skipped.
         if (r.status !== "active") continue;

@@ -142,3 +142,9 @@ export function insights(rows: HistoryRow[]): Insight[] {
   }
   return out;
 }
+
+/**
+ * SQL condition (listings `l` joined with accounts `a`): only listings that really are in the
+ * seller's Vinted shop – linked to a Vinted item and on a connected account, checked at every sync.
+ */
+export const ON_VINTED = "l.status = 'active' AND l.vinted_item_id IS NOT NULL AND a.status = 'connected'";

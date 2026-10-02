@@ -305,6 +305,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     await make("Fremder Artikel", "999", 3000);
     await make("Beliebtes Shirt", "5151", 2000);
     const { db } = await import("../src/db/index.js");
+    await db.run("UPDATE accounts SET status = 'connected' WHERE id = ?", [acc.id]); // only connected shops count
     await db.run("UPDATE listings SET views = 3, listed_at = '2026-01-01T00:00:00.000Z' WHERE vinted_item_id IN ('4242','999')");
     await db.run("UPDATE listings SET views = 400 WHERE vinted_item_id = '5151' OR account_id <> ?", [acc.id]); // others: popular
 

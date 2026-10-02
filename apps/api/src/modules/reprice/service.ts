@@ -4,6 +4,7 @@ import { eventBus, type RepriceStatus } from "../../lib/eventBus.js";
 import { HttpError } from "../../lib/http.js";
 import { chromeUrlFor, getAccount } from "../accounts/repo.js";
 import { getListing, setListingPrice } from "../archive/repo.js";
+import { ON_VINTED } from "../analysis/diagnose.js";
 import { reducedPrice } from "../automations/engine.js";
 import { changePriceInChrome, type PriceJob, type PriceResult } from "./chromePrice.js";
 
@@ -34,7 +35,7 @@ export interface PlanRow {
 export async function planReprice(input: RepriceInput): Promise<PlanRow[]> {
   const rows = await db.all<{ id: number; title: string; account_name: string; views: number; listed_at: string; price_cents: number | null; vinted_item_id: string | null }>(`
     SELECT l.id, l.title, a.name AS account_name, l.views, l.listed_at, l.price_cents, l.vinted_item_id
-    FROM listings l JOIN accounts a ON a.id = l.account_id WHERE l.status = 'active' ORDER BY l.views, l.listed_at`);
+    FROM listings l JOIN accounts a ON a.id = l.account_id WHERE ${ON_VINTED} ORDER BY l.views, l.listed_at`);
   const wanted = input.listingIds ? new Set(input.listingIds) : null;
   const plan: PlanRow[] = [];
   for (const r of rows) {
