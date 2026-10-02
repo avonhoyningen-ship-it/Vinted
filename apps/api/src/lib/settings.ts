@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS = {
   "ai.language": "de",
   /** Instructions for AI listing texts (Einstellungen → KI-Prompt). */
   "ai.listingPrompt": DEFAULT_LISTING_PROMPT,
+  /** Write title, description and listing fields fresh with the AI every time an item is uploaded. */
+  "ai.regenerateOnUpload": true,
   /** Brand rules, one per line: "<words in title/category/hashtags>=<brand>", e.g. "T-Shirt, Tee=Graphic Tee". */
   "brand.rules": "T-Shirt, Tee, Shirt=Graphic Tee",
   /** Parcel size rules, first match wins: "<words>=Klein|Mittel|Groß". */

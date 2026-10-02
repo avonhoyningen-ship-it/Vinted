@@ -9,7 +9,7 @@ import { useApi } from "@/lib/useApi";
 interface Settings {
   "sound.preset": SoundPreset; "sound.volume": number; "sound.enabled": boolean;
   "notifications.desktop": boolean; "notifications.confetti": boolean;
-  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string; "brand.rules": string; "parcel.rules": string;
+  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string; "ai.regenerateOnUpload": boolean; "brand.rules": string; "parcel.rules": string;
 }
 interface Info { aiEnabled: boolean; aiModel: string; pollIntervalMinutes: number; publishIntervalMinutes: number }
 
@@ -67,6 +67,7 @@ export default function SettingsPage() {
               onBlur={() => update({ "automation.dailyMessageCap": data["automation.dailyMessageCap"] })} />
           </label>
           <label className="row"><input type="checkbox" checked={data["automation.paused"]} onChange={(e) => update({ "automation.paused": e.target.checked })} /> Alle Automatisierungen pausieren</label>
+          <label className="row"><input type="checkbox" checked={data["ai.regenerateOnUpload"] ?? true} onChange={(e) => update({ "ai.regenerateOnUpload": e.target.checked })} /> KI schreibt Titel, Beschreibung und Angaben bei jedem Hochladen neu (Preis und Fotos bleiben)</label>
           <label className="field">Sprache für KI-Texte
             <select value={data["ai.language"]} onChange={(e) => update({ "ai.language": e.target.value })}>
               <option value="de">Deutsch</option><option value="en">Englisch</option><option value="fr">Französisch</option>

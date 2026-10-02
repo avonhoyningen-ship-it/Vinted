@@ -5,6 +5,7 @@ import { photoPath } from "../../storage/photos.js";
 import { chromeUrlFor, getAccount } from "../accounts/repo.js";
 import { createListing, getItem, listPhotos } from "../archive/repo.js";
 import { loadRules, parcelSize, parseMeasurements, ruleBrand, ruleParcel } from "../listings/brandRules.js";
+import { refreshForUpload } from "../listings/salesKit.js";
 import { confirmPrice } from "../pricing/engine.js";
 import { CONDITION_LABELS, priceText, type AssistItemData, type AssistSource, type Job } from "./assistant.js";
 
@@ -66,8 +67,10 @@ export const localAssistSource: AssistSource = {
   // Unknown account: default Chrome – check() reports the missing account afterwards.
   chromeUrl: async (accountId) => chromeUrlFor((await getAccount(accountId).catch(() => null)) ?? { chrome_port: null }),
   async load(job) {
+    // Texts and listing fields are written fresh right before every upload.
+    const aiError = await refreshForUpload(job.itemId);
     const { photos, ...data } = await assistData(job.itemId, job.accountId);
-    return { ...data, photoFiles: photos.map(photoPath) };
+    return { ...data, aiError, photoFiles: photos.map(photoPath) };
   },
   linked: linkUploadedListing,
   publish: (status) => eventBus.publish({ type: "assist", status }),

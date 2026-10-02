@@ -82,10 +82,10 @@ function NewTab({ onDone }: { onDone: () => void }) {
     let done = 0;
     const aiErrors: string[] = [];
     for (const g of groups) {
-      setProgress(`Erstelle Artikel ${done + 1} von ${groups.length}${ai ? " (inkl. KI)" : ""}…`);
+      setProgress(`Erstelle Artikel ${done + 1} von ${groups.length}${ai ? " (KI dreht die Fotos)" : ""}…`);
       const fd = new FormData();
       g.forEach((f) => fd.append("photos", f));
-      if (ai) fd.append("ai", "true");
+      if (ai) fd.append("orient", "true"); // texts are written at upload
       if (hints) fd.append("hints", hints);
       try {
         const r = await api<{ aiError: string | null }>("/listings/drafts", { method: "POST", body: fd });
@@ -129,7 +129,7 @@ function NewTab({ onDone }: { onDone: () => void }) {
         </label>
         <label className="field">KI-Unterstützung
           <select value={useAi ? "1" : "0"} onChange={(e) => setUseAi(e.target.value === "1")} disabled={!info.data?.aiEnabled}>
-            <option value="1">Titel, Beschreibung, Kategorie, Preis generieren</option>
+            <option value="1">Fotos drehen – Texte schreibt die KI beim Hochladen</option>
             <option value="0">Ohne KI (manuell ausfüllen)</option>
           </select>
         </label>
@@ -235,7 +235,7 @@ function DraftsTab({ later = false }: { later?: boolean }) {
                     <td><input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} aria-label="auswählen" /></td>
                     <td style={{ width: 56 }}><Thumb src={photoUrl(d.cover_photo)} /></td>
                     <td><Link href={`/archive/${d.id}`}>{d.title}</Link>{!ready && <div className="small" style={{ color: "var(--warn)" }}>
-                      {!(d.photo_count ?? 0) ? "Foto fehlt" : d.price_suggested_cents && !d.price_confirmed ? "Preis noch bestätigen (✓)" : "Preis fehlt"}</div>}</td>
+                      {!(d.photo_count ?? 0) ? "Foto fehlt" : d.price_suggested_cents && !d.price_confirmed ? "Preis eintippen (Enter = Vorschlag)" : "Preis fehlt"}</div>}</td>
                     <td>{[d.brand, d.size].filter(Boolean).join(" · ") || "–"}</td>
                     <td className="num"><PriceCell item={d} onChange={reload} /></td>
                     <td className="num">{d.photo_count}</td>

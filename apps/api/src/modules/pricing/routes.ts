@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "../../db/index.js";
 import { h, idParam, notFound } from "../../lib/http.js";
+import { getItem } from "../archive/repo.js";
 import { confirmPrice, refreshAllSuggestions, refreshSuggestion, ruleInput, type PriceRule } from "./engine.js";
 
 export const pricingRouter = Router();
@@ -19,6 +20,14 @@ pricingRouter.post("/bulk", h(async (req, res) => {
 }));
 
 /** ✓ – accept the suggested price for the given items. */
+/** One price typed in the drafts list: confirmed right away (and learnt), no extra click. */
+pricingRouter.post("/set", h(async (req, res) => {
+  const { itemId, priceCents } = z.object({ itemId: z.number().int().positive(), priceCents: z.number().int().min(50).max(10_000_000) }).parse(req.body);
+  await getItem(itemId);
+  await confirmPrice(itemId, priceCents, "manual");
+  res.json(await getItem(itemId));
+}));
+
 pricingRouter.post("/accept", h(async (req, res) => {
   const { itemIds } = z.object({ itemIds: ids }).parse(req.body);
   let accepted = 0;

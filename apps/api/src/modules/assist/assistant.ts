@@ -39,6 +39,8 @@ export interface AssistItemData {
   domain: string;
   /** Remote-debugging address of this account's Chrome profile (default: CHROME_DEBUG_URL). */
   chromeUrl?: string | null;
+  /** The AI couldn't rewrite the texts this time (the previous ones are used). */
+  aiError?: string | null;
 }
 
 /**
@@ -411,6 +413,7 @@ async function prepare(job: Job): Promise<{ page: Page; filled: string[]; missin
   const notFound = missing.some((m) => ["Fotos", "Titel", "Beschreibung", "Preis", "Kategorie", "Marke", "Größe", "Zustand", "Paketgröße"].includes(m));
 
   const details = notFound ? [`Seite: ${page.url()}`, ...(await describeFields(page))] : [];
+  if (item.aiError) missing.push(`KI-Texte (alte Texte verwendet: ${item.aiError.slice(0, 160)})`);
   return { page, filled, missing, fields: details };
 }
 
@@ -463,7 +466,7 @@ async function prepareAll() {
     for (let job = queue.shift(); job; job = queue.shift()) {
       const tab = tabs.find((t) => t.itemId === job!.itemId && t.state === "queued");
       if (!tab) continue;
-      Object.assign(tab, { state: "preparing", message: "Fülle das Vinted-Formular aus…" });
+      Object.assign(tab, { state: "preparing", message: "KI schreibt Titel & Beschreibung neu, dann wird das Vinted-Formular ausgefüllt…" });
       publish();
       try {
         const r = await prepare(job);

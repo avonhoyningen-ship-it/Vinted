@@ -193,7 +193,8 @@ describe("end-to-end (mock mode)", () => {
 
   it("analyses only listings that really are in the Vinted shop", async () => {
     // Marked as uploaded without a link: one matches a shop item by title, one doesn't exist on Vinted.
-    const nike = (await db.get<{ id: number; vinted_item_id: string }>("SELECT id, vinted_item_id FROM listings WHERE account_id = ? AND title LIKE 'Nike Air Max%'", [accountA]))!;
+    // (Earlier tests sold a random listing, so take one that is still active.)
+    const nike = (await db.get<{ id: number; vinted_item_id: string; title: string }>("SELECT id, vinted_item_id, title FROM listings WHERE account_id = ? AND status = 'active' ORDER BY id LIMIT 1", [accountA]))!;
     await db.run("UPDATE listings SET vinted_item_id = NULL, url = NULL WHERE id = ?", [nike.id]);
     const ghost = (await request(app).post("/api/archive").send({ title: "Gibt es bei Vinted nicht", price_cents: 1000 })).body;
     await request(app).post(`/api/archive/${ghost.id}/listings`).send({ accountId: accountA });
@@ -203,16 +204,16 @@ describe("end-to-end (mock mode)", () => {
     let res = await request(app).get("/api/analysis");
     const titles = () => res.body.listings.map((l: { title: string }) => l.title);
     expect(titles()).not.toContain("Gibt es bei Vinted nicht");
-    expect(titles()).not.toContain("Nike Air Max 90 weiß");
+    expect(res.body.listings.map((l: { listingId: number }) => l.listingId)).not.toContain(nike.id);
     expect(res.body.hidden.unlinked).toBe(2);
     expect(res.body.hidden.accounts).toEqual([expect.objectContaining({ name: "Shop AT" })]);
 
-    // The next sync links the Nike listing again (by title) instead of importing it twice.
+    // The next sync links the listing again (by title) instead of importing it twice.
     expect((await request(app).post(`/api/accounts/${accountA}/sync`)).status).toBe(200);
-    expect((await db.get<{ c: number }>("SELECT COUNT(*) c FROM listings WHERE account_id = ? AND title LIKE 'Nike Air Max%'", [accountA]))!.c).toBe(1);
+    expect((await db.get<{ c: number }>("SELECT COUNT(*) c FROM listings WHERE account_id = ? AND vinted_item_id = ?", [accountA, nike.vinted_item_id]))!.c).toBe(1);
     expect((await db.get<{ vinted_item_id: string }>("SELECT vinted_item_id FROM listings WHERE id = ?", [nike.id]))!.vinted_item_id).toBe(nike.vinted_item_id);
     res = await request(app).get("/api/analysis");
-    expect(titles()).toContain("Nike Air Max 90 weiß");
+    expect(res.body.listings.map((l: { listingId: number }) => l.listingId)).toContain(nike.id);
     expect(titles()).not.toContain("Gibt es bei Vinted nicht");
     expect(res.body.hidden.unlinked).toBe(1);
 

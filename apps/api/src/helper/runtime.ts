@@ -120,8 +120,11 @@ export function createHelper(deps: HelperDeps) {
           return new Map(ids.map((id) => [id, byId.get(id)?.title ?? `Artikel #${id}`]));
         },
         async load(job) {
-          const item = byId.get(job.itemId);
+          let item = byId.get(job.itemId);
           if (!item) throw new Error(`Artikel #${job.itemId} fehlt`);
+          // The cloud writes the texts fresh right before filling (older clouds: the data sent at start).
+          const fresh = await deps.cloud("/api/helper/assist/item", { method: "POST", json: { itemId: job.itemId, accountId: job.accountId } }).catch(() => null);
+          if (fresh?.ok) item = (await fresh.json()) as typeof item;
           // Photos come from the user's cloud storage into a temporary folder.
           const dir = path.join(photoDir, String(item.itemId));
           fs.mkdirSync(dir, { recursive: true });

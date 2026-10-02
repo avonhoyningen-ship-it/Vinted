@@ -80,4 +80,39 @@ describe("folder upload with AI sales kit", () => {
     const meta = await sharp(img.body as Buffer).metadata();
     expect(meta.exif).toBeUndefined();
   });
+
+  it("imports without texts and writes them fresh at every upload – price and photos stay", async () => {
+    vi.mocked(generateListing).mockClear();
+    const res = await request(app).post("/api/listings/drafts")
+      .attach("photos", await landscapeWithGps(), "A_1.jpg")
+      .attach("photos", await portrait(), "A_2.jpg")
+      .field("folder", "50 breit 67 lang")
+      .field("hints", "Größe: M. Kleiner Fleck am Ärmel")
+      .field("orient", "true");
+    expect(res.status).toBe(201);
+    const id = res.body.item.id;
+    expect(generateListing).not.toHaveBeenCalled(); // no texts at import
+    expect(res.body.item).toMatchObject({ title: "50 breit 67 lang", description: "", notes: "Größe: M. Kleiner Fleck am Ärmel" });
+    const before = (await request(app).get(`/api/archive/${id}`)).body.photos;
+    expect([before[0].width, before[0].height]).toEqual([40, 80]); // photos were turned upright at import
+
+    // Seller types a price in the list.
+    expect((await request(app).post("/api/pricing/set").send({ itemId: id, priceCents: 2200 })).body).toMatchObject({ price_cents: 2200, price_confirmed: 1 });
+
+    // Upload: the assistant asks for the item → AI writes everything fresh.
+    const { localAssistSource } = await import("../src/modules/assist/localSource.js");
+    const { db } = await import("../src/db/index.js");
+    const accountId = await db.insert("INSERT INTO accounts (name, domain) VALUES ('Upload-Shop', 'vinted.de')");
+    const data = await localAssistSource.load({ itemId: id, accountId });
+    expect(vi.mocked(generateListing).mock.calls.at(-1)![1]).toMatchObject({ hints: "Größe: M. Kleiner Fleck am Ärmel", measurements: "50 breit 67 lang" });
+    expect(data).toMatchObject({ title: expect.stringMatching(/^Carhartt/), price: "22", aiError: null, condition: "Sehr gut" });
+    expect(data.description).toContain("Carhartt Detroit Jacket");
+    const after = (await request(app).get(`/api/archive/${id}`)).body;
+    expect(after.item).toMatchObject({ price_cents: 2200, price_confirmed: 1, category: "Herren > Jacken", measurements: "50 breit 67 lang" });
+    expect(after.photos.map((p: { id: number }) => p.id)).toEqual(before.map((p: { id: number }) => p.id)); // order untouched
+
+    // Next upload (e.g. reupload): written fresh again.
+    await localAssistSource.load({ itemId: id, accountId });
+    expect(vi.mocked(generateListing).mock.calls.length).toBe(2);
+  });
 });

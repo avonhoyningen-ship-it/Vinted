@@ -8,6 +8,7 @@ import { safeName } from "../storage/store.js";
 import { chromeUrlFor, getAccount, toPublic } from "../modules/accounts/repo.js";
 import { syncAccount } from "../modules/accounts/sync.js";
 import { assistData, checkAssistItems, linkUploadedListing } from "../modules/assist/localSource.js";
+import { refreshForUpload } from "../modules/listings/salesKit.js";
 import { completeJob, createHelperToken, helperStatus, pollJobs, runOnHelper, userForHelperToken } from "./helperHub.js";
 import { getUser, hasAccess } from "./users.js";
 
@@ -129,6 +130,13 @@ helperRouter.post("/events", h(async (req, res) => {
     }
   }
   res.json({ ok: true });
+}));
+
+/** Right before the helper fills one item: texts written fresh by the AI, then the current form data. */
+helperRouter.post("/assist/item", h(async (req, res) => {
+  const { itemId, accountId } = z.object({ itemId: z.number().int().positive(), accountId: z.number().int().positive() }).parse(req.body);
+  const aiError = await refreshForUpload(itemId);
+  res.json({ ...(await assistData(itemId, accountId)), aiError });
 }));
 
 /** Photos for the assistant (from the user's own storage folder). */

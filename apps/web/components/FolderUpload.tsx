@@ -162,7 +162,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
     for (const [i, g] of groups.entries()) {
       const measurements = (g.measurements || folderMeasurements).trim();
       const label = g.measurements || `Artikel ${i + 1}`;
-      setProgress(`Artikel ${i + 1} von ${groups.length} ${useAi && aiEnabled ? "– KI dreht Fotos und schreibt die Beschreibung…" : "wird angelegt…"}`);
+      setProgress(`Artikel ${i + 1} von ${groups.length} ${useAi && aiEnabled ? "– KI dreht die Fotos…" : "wird angelegt…"}`);
       const fd = new FormData();
       const sent = g.files.slice(0, MAX_PHOTOS);
       sent.forEach((f) => fd.append("photos", f, f.name));
@@ -172,7 +172,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
       if (Object.keys(data).length) fd.append("data", JSON.stringify(data));
       const hint = [folderSize.trim() && `Größe: ${folderSize.trim()}`, hints, g.hint].filter((h) => h && h.trim()).join(". ");
       if (hint) fd.append("hints", hint);
-      if (useAi && aiEnabled) fd.append("ai", "true");
+      if (useAi && aiEnabled) fd.append("orient", "true"); // texts are written at upload
       try {
         const r = await api<{ item: { title: string }; aiError: string | null }>("/listings/drafts", { method: "POST", body: fd });
         out.push({ key: g.key, label, ok: !r.aiError, text: r.aiError ? `Entwurf angelegt, KI-Fehler: ${r.aiError}` : r.item.title });
@@ -281,7 +281,8 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
           </div>
           <div className="form-grid">
             <label className="row span-all"><input type="checkbox" checked={useAi && aiEnabled} disabled={!aiEnabled} onChange={(e) => setUseAi(e.target.checked)} />
-              KI: Fotos automatisch drehen, Titel, Beschreibung, Hashtags und Preis erstellen</label>
+              KI: Fotos automatisch drehen</label>
+            <div className="small muted span-all">Titel, Beschreibung, Hashtags und Angaben schreibt die KI erst beim Hochladen – jedes Mal frisch. Hinweise und Maße werden dafür gespeichert.</div>
           </div>
           <div className="small muted">Beim Hochladen werden alle Foto-Metadaten (GPS-Standort, Handymodell, Aufnahmezeit) entfernt.</div>
           <div className="row">
