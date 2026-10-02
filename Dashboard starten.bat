@@ -18,7 +18,7 @@ pause >nul
 :configured
 
 echo.
-echo Das Dashboard startet. Der Browser oeffnet sich gleich von selbst.
+echo Das Dashboard startet. Der Browser und der Vinted-Chrome oeffnen sich gleich von selbst.
 echo Dieses Fenster OFFEN LASSEN, solange du das Dashboard nutzt.
 echo Zum Beenden einfach dieses Fenster schliessen.
 echo.

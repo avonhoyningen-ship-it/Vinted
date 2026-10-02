@@ -182,6 +182,15 @@ describe("end-to-end (mock mode)", () => {
     expect(res.body.insights.length).toBeGreaterThan(0);
   });
 
+  it("starts the Vinted-Chrome with the dashboard unless it is already running", async () => {
+    const { startVintedChromes } = await import("../src/modules/accounts/chromeLaunch.js");
+    const launched: string[][] = [];
+    const log = await startVintedChromes({ chrome: "chrome.exe", launch: (_exe, args) => void launched.push(args) });
+    expect(launched).toEqual([["--remote-debugging-port=9222", "--user-data-dir=C:\\vinted-chrome", "--no-first-run", "--no-default-browser-check", "https://www.vinted.de/"]]);
+    expect(log[0]).toMatch(/gestartet/);
+    expect(await startVintedChromes({ chrome: null })).toEqual([expect.stringMatching(/Chrome nicht gefunden/)]);
+  });
+
   it("analyses only listings that really are in the Vinted shop", async () => {
     // Marked as uploaded without a link: one matches a shop item by title, one doesn't exist on Vinted.
     const nike = (await db.get<{ id: number; vinted_item_id: string }>("SELECT id, vinted_item_id FROM listings WHERE account_id = ? AND title LIKE 'Nike Air Max%'", [accountA]))!;

@@ -147,3 +147,20 @@ describe("sales analysis", async () => {
     expect(parsePrice("kein Preis")).toBeNull();
   });
 });
+
+describe("Vinted-Chrome autostart", () => {
+  it("plans one Chrome per debug port with the account's profile and domain", async () => {
+    const { chromeTargets } = await import("../src/modules/accounts/chromeLaunch.js");
+    expect(chromeTargets([
+      { name: "Haupt", domain: "vinted.de", chrome_port: null },
+      { name: "Shop 2!", domain: "vinted.at", chrome_port: 9223 },
+      { name: "Shop 3", domain: "vinted.fr", chrome_port: 9223 },
+    ], "http://127.0.0.1:9222")).toEqual([
+      { port: 9222, profile: "C:\\vinted-chrome", url: "https://www.vinted.de/", label: "Standard" },
+      { port: 9223, profile: "C:\\vinted-chrome-Shop2", url: "https://www.vinted.at/", label: "Shop 2!" },
+    ]);
+    // Only own-port accounts: no default Chrome needed. No accounts yet: the default one (to log in).
+    expect(chromeTargets([{ name: "A", domain: "vinted.de", chrome_port: 9300 }], "http://127.0.0.1:9222").map((t) => t.port)).toEqual([9300]);
+    expect(chromeTargets([], "http://127.0.0.1:9222").map((t) => t.port)).toEqual([9222]);
+  });
+});

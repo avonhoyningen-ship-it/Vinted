@@ -18,6 +18,16 @@ export default function AccountsPage() {
   const [syncing, setSyncing] = useState<number | null>(null);
   const [connecting, setConnecting] = useState<number | null>(null);
 
+  /** Local: opens the Vinted-Chrome(s) again, e.g. after closing them (they also start with the dashboard). */
+  async function startChrome() {
+    try {
+      const r = await api<{ log: string[] }>("/accounts/chrome/start", { method: "POST" });
+      toast({ kind: "info", text: r.log.join(" ") || "Kein Chrome nötig." });
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    }
+  }
+
   /** Local: take the login (cookies) straight from the Vinted-Chrome on this PC. */
   async function chromeLogin(id: number) {
     setConnecting(id);
@@ -65,6 +75,7 @@ export default function AccountsPage() {
   return (
     <>
       <PageHead title="Accounts" sub="Eigene Vinted-Accounts verbinden und verwalten">
+        {!CLOUD && <button className="btn" onClick={startChrome}>🌐 Vinted-Chrome starten</button>}
         <button className="btn primary" onClick={() => setAdding(true)}>+ Account verbinden</button>
       </PageHead>
       <ErrorBox error={error} />

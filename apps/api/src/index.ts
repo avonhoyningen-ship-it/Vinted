@@ -2,7 +2,8 @@ import { env } from "./config/env.js";
 import { createApp } from "./app.js";
 import { startWorkers } from "./workers/scheduler.js";
 import { applyBrandRules } from "./modules/listings/brandRules.js";
-import { forEachUser } from "./db/index.js";
+import { forEachUser, LOCAL_USER, withUser } from "./db/index.js";
+import { startVintedChromes } from "./modules/accounts/chromeLaunch.js";
 import { startCluster } from "./lib/cluster.js";
 
 if (env.appMode === "cloud") {
@@ -39,6 +40,13 @@ void forEachUser(() => applyBrandRules()).catch((e) => console.warn("Markenregel
 const server = app.listen(env.port, host, () => {
   console.log(`[api] http://localhost:${env.port}/api${host === "127.0.0.1" ? "  (ohne Passwort: nur auf diesem PC erreichbar)" : ""}`);
 });
+// Local dashboard on Windows: open the Vinted-Chrome(s) right away (assistant, price drops, login renewal need them).
+if (env.appMode === "local" && env.autoStartChrome && (process.platform === "win32" || process.env.CHROME_PATH)) {
+  void withUser(LOCAL_USER, () => startVintedChromes())
+    .then((log) => log.forEach((l) => console.log(`[chrome] ${l}`)))
+    .catch((e) => console.warn("[chrome]", (e as Error).message));
+}
+
 // AI work on many photos (e.g. sorting a whole folder) can take several minutes.
 server.requestTimeout = 20 * 60_000;
 const stopWorkers = startWorkers();

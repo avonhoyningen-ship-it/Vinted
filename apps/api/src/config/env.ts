@@ -49,6 +49,8 @@ export const env = {
   disableWorkers: process.env.DISABLE_WORKERS === "true",
   /** Chrome started with --remote-debugging-port (see "Chrome fuer Vinted starten.bat"). */
   chromeDebugUrl: str("CHROME_DEBUG_URL", "http://127.0.0.1:9222"),
+  /** Local dashboard on Windows: start the Vinted-Chrome(s) together with the dashboard (AUTO_START_CHROME=false turns it off). */
+  autoStartChrome: process.env.AUTO_START_CHROME !== "false",
   /**
    * "cloud": multi-user SaaS (Postgres/Supabase, Clerk login, Stripe subscription, PC helper).
    * "local" (default): one user on this PC with SQLite, as before.

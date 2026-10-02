@@ -3,6 +3,7 @@ import { db } from "../../db/index.js";
 import { env } from "../../config/env.js";
 import { h, HttpError, idParam } from "../../lib/http.js";
 import { importChromeLogin } from "./chromeLogin.js";
+import { startVintedChromes } from "./chromeLaunch.js";
 import {
   accountInput, accountPatch, createAccount, deleteAccount, disconnectAccount, getAccount, listAccounts, toPublic, updateAccount, VINTED_DOMAINS,
 } from "./repo.js";
@@ -62,6 +63,12 @@ accountsRouter.patch("/:id", h(async (req, res) => {
 }));
 
 /** Verifies the session and syncs listings, sales, favourites and messages. */
+/** Local dashboard: starts the Vinted-Chrome(s) that aren't running (also done at dashboard start). */
+accountsRouter.post("/chrome/start", h(async (_req, res) => {
+  if (env.appMode === "cloud") throw new HttpError(400, "In der Cloud-Version startet der PC-Helfer Chrome.");
+  res.json({ log: await startVintedChromes() });
+}));
+
 /** Local dashboard: takes the login from the Vinted-Chrome and syncs right away. */
 accountsRouter.post("/:id/chrome-login", h(async (req, res) => {
   if (env.appMode === "cloud") throw new HttpError(400, "In der Cloud-Version übernimmt der PC-Helfer den Login („Mit PC-Helfer verbinden“).");
