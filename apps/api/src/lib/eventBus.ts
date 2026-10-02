@@ -9,7 +9,18 @@ export type DashboardEvent =
   | { type: "published"; accountId: number; itemId: number; title: string }
   | { type: "queue_failed"; accountId: number; itemId: number; error: string }
   | { type: "account_status"; accountId: number; status: string; error?: string | null }
-  | { type: "assist"; status: AssistStatus };
+  | { type: "assist"; status: AssistStatus }
+  | { type: "reprice"; status: RepriceStatus };
+
+/** Progress of a "Preis senken" run. */
+export interface RepriceStatus {
+  state: "idle" | "running" | "done";
+  percent: number;
+  total: number;
+  done: number;
+  message: string | null;
+  items: { listingId: number; title: string; oldCents: number; newCents: number; state: "queued" | "running" | "done" | "failed" | "skipped"; message: string | null }[];
+}
 
 export interface AssistStatus {
   state: "idle" | "preparing" | "waiting" | "error";

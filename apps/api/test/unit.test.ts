@@ -93,3 +93,57 @@ describe("brand rules and measurements", async () => {
     expect(parseMeasurements(null)).toEqual({ width: null, length: null });
   });
 });
+
+describe("sales analysis", async () => {
+  const { diagnose, insights } = await import("../src/modules/analysis/diagnose.js");
+  const { parsePrice } = await import("../src/modules/reprice/chromePrice.js");
+  const now = Date.parse("2026-10-01T12:00:00Z");
+  const base = {
+    title: "Graphic Tee Anime weiß M", description: "- 🌸 Print vorne\n- 📏 Breite 52 cm, Länge 70 cm\n- Zustand sehr gut, keine Flecken, nur zweimal getragen\n- Versand am nächsten Werktag #tee",
+    priceCents: 2400, views: 300, favourites: 20, listedAt: "2026-09-20T12:00:00Z", lastPriceDropAt: null, photoCount: 6,
+    brand: "Graphic Tee", size: "M", category: "Herren > T-Shirts", condition: "very_good", measurements: "Breite 52 Länge 70", marketCents: 2400,
+  };
+  const codes = (f: Partial<typeof base>) => diagnose({ ...base, ...f }, now).issues.map((i) => i.code);
+
+  it("finds nothing wrong with a healthy listing", () => {
+    const d = diagnose({ ...base, views: 60, favourites: 2 }, now);
+    expect(d.issues).toEqual([]);
+    expect(d.score).toBe(100);
+    expect(d.viewsPerDay).toBeCloseTo(60 / 11, 1);
+  });
+  it("names the typical reasons", () => {
+    expect(codes({ views: 10 })).toContain("low_views");
+    expect(codes({ views: 400, favourites: 2 })).toContain("low_interest");
+    expect(codes({ favourites: 5 })).toContain("no_conversion");
+    expect(codes({ priceCents: 3500 })).toContain("overpriced");
+    expect(codes({ photoCount: 2 })).toContain("few_photos");
+    expect(codes({ description: "kurz #tee #anime" })).toContain("short_description");
+    expect(codes({ brand: null, size: null })).toContain("missing_info");
+    expect(codes({ listedAt: "2026-08-01T00:00:00Z" })).toContain("stale");
+    expect(codes({ title: "Weißes Shirt" })).toContain("brand_not_in_title");
+    expect(codes({ listedAt: "2026-10-01T00:00:00Z", views: 0 })).toEqual(["new"]);
+  });
+  it("ranks the worst first and lowers the score", () => {
+    const d = diagnose({ ...base, views: 10, photoCount: 2, priceCents: 4000 }, now);
+    expect(d.issues[0]!.severity).toBe("high");
+    expect(d.score).toBeLessThanOrEqual(25);
+  });
+  it("derives insights from the history", () => {
+    const row = (category: string, status: string, priceCents = 2000) => ({ status, listedAt: "2026-09-01T00:00:00Z", soldAt: status === "sold" ? "2026-09-08T00:00:00Z" : null, priceCents, category, brand: null });
+    const rows = [
+      ...["sold", "sold", "sold", "active"].map((s) => row("Herren > T-Shirts", s, 1500)),
+      ...["active", "active", "active", "sold"].map((s) => row("Herren > Hosen", s, 4000)),
+    ];
+    const texts = insights(rows).map((i) => i.text).join("\n");
+    expect(texts).toMatch(/Beste Kategorie: T-Shirts – 75 %/);
+    expect(texts).toMatch(/Schwächste Kategorie: Hosen – 25 %/);
+    expect(texts).toMatch(/im Mittel 7 Tage online/);
+  });
+  it("reads prices from Vinted pages", () => {
+    expect(parsePrice("24,50 €")).toBe(2450);
+    expect(parsePrice("1.200,00 €")).toBe(120000);
+    expect(parsePrice("€24.50")).toBe(2450);
+    expect(parsePrice("19 €")).toBe(1900);
+    expect(parsePrice("kein Preis")).toBeNull();
+  });
+});

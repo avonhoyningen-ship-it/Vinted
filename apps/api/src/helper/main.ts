@@ -75,6 +75,7 @@ async function main() {
   const assistant = await import("../modules/assist/assistant.js");
   const { chromium } = await import("playwright-core");
   const { createHelper } = await import("./runtime.js");
+  const { changePriceInChrome } = await import("../modules/reprice/chromePrice.js");
 
   const readAll = (): Record<string, string> => (fs.existsSync(LOGINS) ? JSON.parse(fs.readFileSync(LOGINS, "utf8")) : {});
   const logins: LoginStore = {
@@ -117,6 +118,7 @@ async function main() {
       const get = (n: string) => cookies.find((c) => c.name === n)?.value ?? null;
       return { access: get("access_token_web"), refresh: get("refresh_token_web") };
     },
+    changePrice: changePriceInChrome,
     assistant: {
       setSource: assistant.setAssistSource,
       start: assistant.startAssist,

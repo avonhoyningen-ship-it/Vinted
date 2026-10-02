@@ -96,7 +96,7 @@ function publish() {
   src().publish(getAssistStatus());
 }
 
-async function connect(url: string = env.chromeDebugUrl): Promise<Browser> {
+export async function connect(url: string = env.chromeDebugUrl): Promise<Browser> {
   const known = browsers.get(url);
   if (known?.isConnected()) return known;
   try {
@@ -117,7 +117,7 @@ export const priceText = (cents: number) => (cents % 100 === 0 ? String(cents / 
  * First visible candidate wins – Vinted may change markup, so several variants
  * are tried. The sell form renders progressively, so we keep looking for a while.
  */
-async function firstVisible(candidates: Locator[], timeoutMs = 20_000): Promise<Locator | null> {
+export async function firstVisible(candidates: Locator[], timeoutMs = 20_000): Promise<Locator | null> {
   const until = Date.now() + timeoutMs;
   do {
     for (const c of candidates) {
@@ -158,7 +158,7 @@ async function fill(page: Page, candidates: Locator[], value: string, timeoutMs 
  * Vinted's price field formats while typing ("24,50 €") and Chrome offers old prices
  * as autofill – so type the price key by key, close the autofill list and check the result.
  */
-async function fillPrice(page: Page, candidates: Locator[], value: string): Promise<boolean> {
+export async function fillPrice(page: Page, candidates: Locator[], value: string): Promise<boolean> {
   const el = await firstVisible(candidates);
   if (!el) return false;
   const digits = (v: string) => v.replace(/[^0-9]/g, "").replace(/^0+/, "");

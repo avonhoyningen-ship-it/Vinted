@@ -30,7 +30,7 @@ export const ListingSuggestion = z.object({
 export type ListingSuggestion = z.infer<typeof ListingSuggestion>;
 
 let client: Anthropic | null = null;
-function getClient() {
+export function getClient() {
   if (!env.anthropicApiKey) throw new HttpError(503, "ANTHROPIC_API_KEY ist nicht gesetzt – KI-Funktionen deaktiviert (siehe .env)");
   client ??= new Anthropic({ apiKey: env.anthropicApiKey });
   return client;
@@ -63,7 +63,7 @@ export interface GenerateOptions {
 }
 
 /** Small JPEG for the model (faster, cheaper); full-size files stay untouched. */
-async function modelImage(p: PhotoRow): Promise<Anthropic.ImageBlockParam> {
+export async function modelImage(p: PhotoRow): Promise<Anthropic.ImageBlockParam> {
   const buf = await sharp(await readPhoto(p.file_name)).resize({ width: 1024, height: 1024, fit: "inside" }).jpeg({ quality: 80 }).toBuffer();
   return { type: "image", source: { type: "base64", media_type: "image/jpeg", data: buf.toString("base64") } };
 }

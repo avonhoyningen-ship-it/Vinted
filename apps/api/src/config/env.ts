@@ -81,6 +81,8 @@ export const env = {
   mailFrom: process.env.MAIL_FROM || null,
   /** Where cancellation requests are copied to (operator). */
   operatorEmail: process.env.OPERATOR_EMAIL || null,
+  /** Only for tests: Vinted base URL for item pages (default https://www.<domain>). */
+  vintedBaseUrl: process.env.VINTED_BASE_URL || null,
   /** Only for tests: override the Vinted sell page URL. */
   vintedSellUrl: process.env.VINTED_SELL_URL || null,
 };

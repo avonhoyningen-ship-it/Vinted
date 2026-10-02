@@ -5,7 +5,7 @@ import { formatPrice, renderTemplate } from "../../lib/placeholders.js";
 import { getSetting } from "../../lib/settings.js";
 import { vintedClient, VintedError } from "../../vinted/vintedClient.js";
 import { getAccount, sessionFor } from "../accounts/repo.js";
-import { getListing, setListingPrice } from "../archive/repo.js";
+import { getListing } from "../archive/repo.js";
 
 // ---------- rule schema ----------
 
@@ -274,9 +274,11 @@ export async function executeAction(a: ActionRow): Promise<void> {
       if (l.status !== "active" || l.price_cents === null || !l.vinted_item_id) return await finish(a.id, "skipped", "Listing nicht mehr aktiv");
       const next = reducedPrice(l.price_cents, Number(payload.percent ?? 10), (payload.minPriceCents as number | null) ?? null);
       if (next >= l.price_cents) return await finish(a.id, "skipped", "Mindestpreis erreicht");
-      await vintedClient.updatePrice(key, session, l.vinted_item_id, next);
-      await setListingPrice(l.id, next, `Automatisierung #${a.rule_id}`);
-      return await finish(a.id, "done", `${formatPrice(l.price_cents, l.currency)} → ${formatPrice(next, l.currency)}`);
+      // No Vinted API for prices: changed in the Vinted-Chrome (cloud: via the PC helper).
+      const { changeListingPrice } = await import("../reprice/service.js");
+      const r = await changeListingPrice(l.id, next, `Automatisierung #${a.rule_id}`);
+      if (!r.ok) return await finish(a.id, "failed", r.message);
+      return await finish(a.id, "done", `${formatPrice(l.price_cents, l.currency)} → ${formatPrice(next, l.currency)}${r.verified ? "" : " (bitte prüfen)"}`);
     }
     await finish(a.id, "failed", `Unbekannte Aktion ${a.action_type}`);
   } catch (e) {

@@ -67,6 +67,7 @@ const SELL_PAGE = `<!doctype html><html><body>
 </body></html>`;
 
 let server: http.Server;
+const prices = new Map<string, number>(); // fake Vinted: item id → price in cents
 let chrome: ChildProcess;
 let app: import("express").Express;
 let base = "";
@@ -85,7 +86,27 @@ beforeAll(async () => {
   if (!hasChrome) return;
   server = http.createServer((req, res) => {
     res.setHeader("content-type", "text/html; charset=utf-8");
-    res.end(req.url?.startsWith("/items/new") ? SELL_PAGE : "<html><body>Artikel online</body></html>");
+    const url = new URL(req.url ?? "/", "http://x");
+    if (url.pathname.startsWith("/items/new")) return res.end(SELL_PAGE);
+    // Fake edit/save/item pages for "Preis senken"
+    const edit = /^\/items\/(\d+)\/edit$/.exec(url.pathname);
+    if (edit) {
+      const id = edit[1]!;
+      if (id === "999") { res.writeHead(302, { location: `/items/${id}` }); return res.end(); } // not own item
+      return res.end(`<!doctype html><html><body><label for="price">Preis</label><input id="price" name="price" value="${(prices.get(id) ?? 2400) / 100}">
+        <button onclick="fetch('/save?id=${id}&price=' + encodeURIComponent(document.getElementById('price').value)).then(() => location.href = '/items/${id}')">Speichern</button></body></html>`);
+    }
+    if (url.pathname === "/save") {
+      const v = (url.searchParams.get("price") ?? "").replace(",", ".");
+      prices.set(url.searchParams.get("id")!, Math.round(Number(v) * 100));
+      return res.end("ok");
+    }
+    const item = /^\/items\/(\d+)/.exec(url.pathname);
+    if (item) {
+      const c = prices.get(item[1]!) ?? 2400;
+      return res.end(`<html><body>Artikel online <div data-testid="item-price">${(c / 100).toFixed(2).replace(".", ",")} €</div></body></html>`);
+    }
+    res.end("<html><body>Artikel online</body></html>");
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -94,6 +115,7 @@ beforeAll(async () => {
   await waitFor(() => fetch(`http://127.0.0.1:${port}/json/version`).then((r) => r.ok));
   process.env.CHROME_DEBUG_URL = `http://127.0.0.1:${port}`;
   process.env.VINTED_SELL_URL = `${base}/items/new`;
+  process.env.VINTED_BASE_URL = base;
   vi.resetModules();
   app = (await import("../src/app.js")).createApp();
 }, 30_000);
@@ -271,4 +293,43 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     expect(after).toMatchObject({ status: "connected", session_hint: "••••wxyz" });
     await b.close();
   }, 60_000);
+
+  it("lowers prices in the Vinted-Chrome: listings with few views, preview, progress, verified", async () => {
+    const acc = (await request(app).post("/api/accounts").send({ name: "Preis-Shop", domain: "vinted.de" })).body.account;
+    const make = async (title: string, vintedId: string, priceCents: number) => {
+      const item = (await request(app).post("/api/archive").send({ title, price_cents: priceCents })).body;
+      await request(app).post(`/api/archive/${item.id}/listings`).send({ accountId: acc.id, url: `https://www.vinted.de/items/${vintedId}-x`, priceCents });
+      return item.id as number;
+    };
+    await make("Ladenhüter Tee", "4242", 2400);
+    await make("Fremder Artikel", "999", 3000);
+    await make("Beliebtes Shirt", "5151", 2000);
+    const { db } = await import("../src/db/index.js");
+    await db.run("UPDATE listings SET views = 3, listed_at = '2026-01-01T00:00:00.000Z' WHERE vinted_item_id IN ('4242','999')");
+    await db.run("UPDATE listings SET views = 400 WHERE vinted_item_id = '5151' OR account_id <> ?", [acc.id]); // others: popular
+
+    const preview = (await request(app).post("/api/reprice/preview").send({ percent: 10, maxViews: 20, minDays: 7 })).body;
+    expect(preview.map((p: { title: string; oldCents: number; newCents: number }) => [p.title, p.oldCents, p.newCents])).toEqual([
+      ["Ladenhüter Tee", 2400, 2160], ["Fremder Artikel", 3000, 2700],
+    ]);
+
+    const start = await request(app).post("/api/reprice/start").send({ percent: 10, maxViews: 20, minDays: 7 });
+    expect(start.status).toBe(200);
+    const done = await waitFor(async () => {
+      const s = (await request(app).get("/api/reprice/status")).body;
+      return s.state === "done" && s;
+    }, 60_000);
+    expect(done.items.map((i: { title: string; state: string }) => [i.title, i.state])).toEqual([["Ladenhüter Tee", "done"], ["Fremder Artikel", "failed"]]);
+    expect(done.items[0].message).toBe("Preis geändert");
+    expect(done.items[1].message).toMatch(/Bearbeiten nicht möglich/);
+    expect(prices.get("4242")).toBe(2160); // the fake Vinted really got the new price
+    const l = await db.get<{ price_cents: number; last_price_drop_at: string | null }>("SELECT price_cents, last_price_drop_at FROM listings WHERE vinted_item_id = '4242'");
+    expect(l).toMatchObject({ price_cents: 2160 });
+    expect(l!.last_price_drop_at).not.toBeNull();
+    expect(await db.get("SELECT reason FROM listing_price_changes ORDER BY id DESC LIMIT 1")).toEqual({ reason: "Preissenkung −10 %" });
+
+    // Explicit selection works too; the popular item stays untouched otherwise.
+    const pick = (await request(app).post("/api/reprice/preview").send({ percent: 50, minPriceCents: 1500, listingIds: [(await db.get<{ id: number }>("SELECT id FROM listings WHERE vinted_item_id = '5151'"))!.id] })).body;
+    expect(pick).toEqual([expect.objectContaining({ title: "Beliebtes Shirt", oldCents: 2000, newCents: 1500, skip: null })]);
+  }, 90_000);
 });

@@ -172,6 +172,16 @@ describe("end-to-end (mock mode)", () => {
     expect((await request(app).get(`/api/archive/${d.id}`)).body.item.status).toBe("active");
   });
 
+  it("analyses active listings (worst first) with insights", async () => {
+    const res = await request(app).get("/api/analysis");
+    expect(res.status).toBe(200);
+    expect(res.body.listings.length).toBeGreaterThan(0);
+    const scores = res.body.listings.map((l: { score: number }) => l.score);
+    expect([...scores].sort((a: number, b: number) => a - b)).toEqual(scores);
+    expect(res.body.listings[0]).toMatchObject({ listingId: expect.any(Number), issues: expect.any(Array), viewsPerDay: expect.any(Number) });
+    expect(res.body.insights.length).toBeGreaterThan(0);
+  });
+
   it("protects listed items and accounts from deletion", async () => {
     const item = (await request(app).get("/api/archive").query({ accountId: accountA })).body.items[0];
     expect((await request(app).delete(`/api/archive/${item.id}`)).status).toBe(409);
@@ -185,12 +195,20 @@ describe("end-to-end (mock mode)", () => {
       actionConfig: { percent: 10, minPriceCents: 500 },
     });
     expect(rule.status).toBe(201);
+    // The price is changed in the Vinted-Chrome – here a fake that confirms it.
+    const changed: { vintedItemId: string; newCents: number }[] = [];
+    const { setPriceExecutor } = await import("../src/modules/reprice/service.js");
+    setPriceExecutor(async (job) => {
+      changed.push({ vintedItemId: job.vintedItemId, newCents: job.newCents });
+      return { ok: true, verified: true, shownCents: job.newCents, message: "Preis geändert" };
+    });
     const { scheduleStaleListingActions } = await import("../src/modules/automations/engine.js");
     expect(await scheduleStaleListingActions()).toBe(2);
     expect(await scheduleStaleListingActions()).toBe(0);
     await runDueActions();
     const changes = (await db.get("SELECT COUNT(*) c FROM listing_price_changes")) as { c: number };
-    expect(changes.c).toBeGreaterThanOrEqual(2);
+    expect(Number(changes.c)).toBeGreaterThanOrEqual(2);
+    expect(changed.length).toBeGreaterThanOrEqual(2);
   });
 
   it("parks drafts under 'Später', adds photos and marks them uploaded by hand", async () => {

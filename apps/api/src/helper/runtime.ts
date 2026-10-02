@@ -27,6 +27,8 @@ export interface HelperDeps {
   logins: LoginStore;
   /** access/refresh token cookies of the Vinted-Chrome for a domain. */
   readVintedCookies(domain: string, chromeUrl?: string | null): Promise<{ access: string | null; refresh: string | null }>;
+  /** Changes a listing price in the Vinted-Chrome ("Preis senken"). */
+  changePrice?(job: import("../modules/reprice/chromePrice.js").PriceJob): Promise<import("../modules/reprice/chromePrice.js").PriceResult>;
   assistant: {
     setSource(s: AssistSource): void;
     start(itemIds: number[], accountId: number): Promise<AssistStatus>;
@@ -140,6 +142,11 @@ export function createHelper(deps: HelperDeps) {
         publish: pushStatus,
       });
       return deps.assistant.start(items.map((i) => i.itemId), accountId);
+    },
+
+    async "reprice.item"(p) {
+      if (!deps.changePrice) throw new Error("Dieser PC-Helfer kann noch keine Preise ändern – bitte aktualisieren");
+      return deps.changePrice(p as unknown as import("../modules/reprice/chromePrice.js").PriceJob);
     },
 
     async "assist.skip"(p) {

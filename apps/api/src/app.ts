@@ -5,6 +5,7 @@ import { requireAuth } from "./lib/auth.js";
 import { errorHandler, h, idParam } from "./lib/http.js";
 import { helperAdapter } from "./cloud/helperAdapter.js";
 import { cloudAssistRouter, connectAccountViaHelper, helperRouter, helperTokensRouter } from "./cloud/helperRoutes.js";
+import { runOnHelper } from "./cloud/helperHub.js";
 import { vintedClient } from "./vinted/vintedClient.js";
 import { cloudAuth } from "./cloud/auth.js";
 import { legalRouter } from "./cloud/legal.js";
@@ -16,6 +17,9 @@ import { assistRouter } from "./modules/assist/routes.js";
 import { automationsRouter } from "./modules/automations/routes.js";
 import { listingsRouter } from "./modules/listings/routes.js";
 import { pricingRouter } from "./modules/pricing/routes.js";
+import { analysisRouter } from "./modules/analysis/routes.js";
+import { repriceRouter } from "./modules/reprice/routes.js";
+import { setPriceExecutor } from "./modules/reprice/service.js";
 import { statsRouter } from "./modules/stats/routes.js";
 import { authRouter } from "./modules/system/authRoutes.js";
 import { systemRouter } from "./modules/system/routes.js";
@@ -52,6 +56,7 @@ export function createApp() {
     app.post("/api/accounts/:id/connect-helper", h(async (req, res) => res.json(await connectAccountViaHelper(idParam(req)))));
     app.use("/api/assist", cloudAssistRouter);
     vintedClient.useAdapter(helperAdapter, 0);
+    setPriceExecutor((job) => runOnHelper("reprice.item", job, { timeoutMs: 120_000 }));
   } else {
     // Login (cookie session) or bearer API_TOKEN; open only if neither is configured.
     app.use("/api/auth", authRouter);
@@ -64,6 +69,8 @@ export function createApp() {
   app.use("/api/automations", automationsRouter);
   app.use("/api/stats", statsRouter);
   app.use("/api/pricing", pricingRouter);
+  app.use("/api/analysis", analysisRouter);
+  app.use("/api/reprice", repriceRouter);
   // The posting assistant drives the Chrome on this PC – in the cloud the PC helper does that.
   if (env.appMode === "local") app.use("/api/assist", assistRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
