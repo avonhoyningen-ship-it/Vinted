@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/archive", label: "Archiv", icon: "🗄" },
   { href: "/automations", label: "Automatisierungen", icon: "⚡" },
   { href: "/stats", label: "Statistik", icon: "📈" },
+  { href: "/analyse", label: "Analyse", icon: "🔍" },
   { href: "/settings", label: "Einstellungen", icon: "⚙" },
   ...(CLOUD ? [{ href: "/abo", label: "Abo", icon: "💳" }] : []),
 ];

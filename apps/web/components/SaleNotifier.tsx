@@ -69,6 +69,11 @@ export function SaleNotifier() {
       es.addEventListener("assist", (ev) => {
         window.dispatchEvent(new CustomEvent("assist", { detail: JSON.parse((ev as MessageEvent).data).status }));
       });
+      es.addEventListener("reprice", (ev) => {
+        const status = JSON.parse((ev as MessageEvent).data).status;
+        window.dispatchEvent(new CustomEvent("reprice", { detail: status }));
+        if (status.state === "done") window.dispatchEvent(new CustomEvent("dashboard-refresh"));
+      });
       es.addEventListener("account_status", (ev) => {
         const e = JSON.parse((ev as MessageEvent).data);
         if (e.status === "error") toast({ kind: "error", text: <>Account-Fehler: {e.error}</> });
