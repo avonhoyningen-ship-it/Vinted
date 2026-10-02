@@ -6,6 +6,8 @@ import { env } from "../../config/env.js";
 import { HttpError } from "../../lib/http.js";
 import { readPhoto } from "../../storage/photos.js";
 import { CONDITIONS, type PhotoRow } from "../archive/repo.js";
+import { normalizeCondition } from "../accounts/sync.js";
+import { parcelSize } from "./brandRules.js";
 
 export const ListingSuggestion = z.object({
   title: z.string().describe("Vinted-Titel, max. 90 Zeichen, normale Schreibweise"),
@@ -83,16 +85,32 @@ export async function generateListing(photos: PhotoRow[], opts: GenerateOptions)
   ].filter(Boolean).join("\n");
   content.push({ type: "text", text: `Erstelle das Verkaufs-Kit für diesen Artikel.\n${info}` });
 
-  const response = await getClient().messages.parse({
-    model: env.anthropicModel,
-    max_tokens: 16000,
-    system: `${opts.stylePrompt.trim()}\n${TECHNICAL_RULES}`,
-    messages: [{ role: "user", content }],
-    output_config: { format: zodOutputFormat(ListingSuggestion) },
-  });
-  if (response.stop_reason === "refusal") throw new HttpError(422, "Die KI hat die Anfrage abgelehnt");
-  if (!response.parsed_output) throw new HttpError(502, "KI-Antwort konnte nicht gelesen werden");
-  return response.parsed_output;
+  // Zustand/Paketgröße sometimes come back as "Sehr gut", "mittel", null …: normalised instead of failing the whole item.
+  let lastError = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await getClient().messages.create({
+      model: env.anthropicModel,
+      max_tokens: 16000,
+      system: `${opts.stylePrompt.trim()}\n${TECHNICAL_RULES}`,
+      messages: [{ role: "user", content }],
+      output_config: { format: zodOutputFormat(ListingSuggestion) },
+    });
+    if (response.stop_reason === "refusal") throw new HttpError(422, "Die KI hat die Anfrage abgelehnt");
+    const text = response.content.map((b) => (b.type === "text" ? b.text : "")).join("");
+    try {
+      return parseSuggestion(JSON.parse(text));
+    } catch (e) {
+      lastError = e instanceof z.ZodError ? e.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : (e as Error).message;
+    }
+  }
+  throw new HttpError(502, `KI-Antwort konnte nicht gelesen werden (${lastError})`);
+}
+
+/** Validates the model's JSON; condition and parcel size are mapped leniently (with safe defaults). */
+export function parseSuggestion(raw: Record<string, unknown>): ListingSuggestion {
+  const cond = normalizeCondition(typeof raw.condition === "string" ? raw.condition.replace(/_/g, " ") : null);
+  const parcel = parcelSize(typeof raw.parcel_size === "string" ? raw.parcel_size : null);
+  return ListingSuggestion.parse({ ...raw, condition: cond ?? "very_good", parcel_size: parcel ?? "Mittel" });
 }
 
 /** Valid permutation of 0..n-1 from the model's 1-based order; missing photos keep their place at the end. */

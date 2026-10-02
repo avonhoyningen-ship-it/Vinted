@@ -44,9 +44,11 @@ export type ParcelSize = "Klein" | "Mittel" | "Groß";
 /** "klein" / "S" / "mittel" / "gross" … → Vinted's parcel size label, else null. */
 export function parcelSize(v: string | null | undefined): ParcelSize | null {
   const t = (v ?? "").trim().toLowerCase();
-  if (/^(klein|s|small)$/.test(t)) return "Klein";
-  if (/^(mittel|m|medium)$/.test(t)) return "Mittel";
-  if (/^(gro(ß|ss)|l|large)$/.test(t)) return "Groß";
+  // also "Klein (Umschlag)", "mittelgroß" is not matched by mistake
+  const word = "(?![a-zäöüß])";
+  if (new RegExp(`^(klein|s|small)${word}`).test(t)) return "Klein";
+  if (new RegExp(`^(mittel|m|medium)${word}`).test(t)) return "Mittel";
+  if (new RegExp(`^(gro(ß|ss)|l|large)${word}`).test(t)) return "Groß";
   return null;
 }
 

@@ -164,3 +164,16 @@ describe("Vinted-Chrome autostart", () => {
     expect(chromeTargets([], "http://127.0.0.1:9222").map((t) => t.port)).toEqual([9222]);
   });
 });
+
+describe("AI sales kit parsing", () => {
+  it("maps condition and parcel size leniently instead of failing the item", async () => {
+    const { parseSuggestion } = await import("../src/modules/listings/ai.js");
+    const base = {
+      title: "T", bullets: [], hashtags: [], category: "Herren", brand: null, size: null, color: null, material: null,
+      suggested_price_eur: 20, price_reasoning: "", rotations: [], photo_order: [1], confidence_notes: "",
+    };
+    expect(parseSuggestion({ ...base, condition: "Sehr gut", parcel_size: "klein (Umschlag)" })).toMatchObject({ condition: "very_good", parcel_size: "Klein" });
+    expect(parseSuggestion({ ...base, condition: "new_with_tags", parcel_size: "Groß" })).toMatchObject({ condition: "new_with_tags", parcel_size: "Groß" });
+    expect(parseSuggestion({ ...base, condition: null, parcel_size: null })).toMatchObject({ condition: "very_good", parcel_size: "Mittel" });
+  });
+});
