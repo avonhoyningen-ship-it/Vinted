@@ -52,6 +52,7 @@ export class VintedClient {
   verifySession(key: string, s: VintedSession) { return this.call(key, () => this.adapter.verifySession(s)); }
   fetchOwnListings(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchOwnListings(s)); }
   fetchSales(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchSales(s)); }
+  fetchPurchases(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchPurchases(s)); }
   fetchFavourites(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchFavourites(s)); }
   fetchMessages(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchMessages(s)); }
   sendMessage(key: string, s: VintedSession, input: SendMessageInput) { return this.call(key, () => this.adapter.sendMessage(s, input)); }

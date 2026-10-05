@@ -353,4 +353,18 @@ ALTER TABLE settings_new RENAME TO settings;
     // One Chrome profile per Vinted account (port of its remote debugging); NULL = default 9222.
     sql: `ALTER TABLE accounts ADD COLUMN chrome_port INTEGER;`,
   },
+  {
+    id: 9,
+    name: "outreach_log",
+    // Messages/offers sent in bulk from the dashboard: nobody gets the same one twice.
+    sql: `
+CREATE TABLE outreach_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  target_key TEXT NOT NULL,
+  sent_at TEXT NOT NULL DEFAULT ${NOW},
+  UNIQUE (account_id, kind, target_key)
+);`,
+  },
 ];

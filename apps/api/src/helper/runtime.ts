@@ -29,6 +29,7 @@ export interface HelperDeps {
   readVintedCookies(domain: string, chromeUrl?: string | null): Promise<{ access: string | null; refresh: string | null }>;
   /** Changes a listing price in the Vinted-Chrome ("Preis senken"). */
   changePrice?(job: import("../modules/reprice/chromePrice.js").PriceJob): Promise<import("../modules/reprice/chromePrice.js").PriceResult>;
+  sendMessage?(job: import("../modules/outreach/chromeOutreach.js").OutreachJob): Promise<import("../modules/outreach/chromeOutreach.js").OutreachResult>;
   assistant: {
     setSource(s: AssistSource): void;
     start(itemIds: number[], accountId: number): Promise<AssistStatus>;
@@ -41,7 +42,7 @@ export interface HelperDeps {
 
 export interface Job { id: number; kind: string; payload: Record<string, unknown> }
 
-const VINTED_METHODS = new Set(["verifySession", "fetchOwnListings", "fetchSales", "fetchFavourites", "fetchMessages", "sendMessage", "updatePrice"]);
+const VINTED_METHODS = new Set(["verifySession", "fetchOwnListings", "fetchSales", "fetchPurchases", "fetchFavourites", "fetchMessages", "sendMessage", "updatePrice"]);
 
 export function createHelper(deps: HelperDeps) {
   const log = deps.log ?? (() => {});
@@ -150,6 +151,11 @@ export function createHelper(deps: HelperDeps) {
     async "reprice.item"(p) {
       if (!deps.changePrice) throw new Error("Dieser PC-Helfer kann noch keine Preise ändern – bitte aktualisieren");
       return deps.changePrice(p as unknown as import("../modules/reprice/chromePrice.js").PriceJob);
+    },
+
+    async "outreach.send"(p) {
+      if (!deps.sendMessage) throw new Error("Dieser PC-Helfer kann noch keine Nachrichten senden – bitte aktualisieren");
+      return deps.sendMessage(p as unknown as import("../modules/outreach/chromeOutreach.js").OutreachJob);
     },
 
     async "assist.skip"(p) {

@@ -210,9 +210,19 @@ export async function scheduleStaleListingActions(now = new Date()): Promise<num
 }
 
 /** New price after a percentage drop, rounded down to 10 cents, never below the floor. */
+/**
+ * Price after a discount, as an even euro amount (24 € −10 % → 22 €, 35 € → 32 €, 19 € → 18 €):
+ * the nearest even euro below the current price, never under the minimum price.
+ */
 export function reducedPrice(currentCents: number, percent: number, minCents: number | null): number {
-  const raw = Math.floor((currentCents * (100 - percent)) / 100 / 10) * 10;
-  return Math.max(raw, minCents ?? 0, 100);
+  return Math.max(evenEuros((currentCents * (100 - percent)) / 100, currentCents), minCents ?? 0, 200);
+}
+
+/** Nearest even whole euro amount (in cents) that is still below `belowCents`. */
+export function evenEuros(cents: number, belowCents = Infinity): number {
+  let even = Math.round(cents / 200) * 200;
+  if (even >= belowCents) even = Math.floor((belowCents - 1) / 200) * 200;
+  return Math.max(even, 0);
 }
 
 // ---------- execution ----------

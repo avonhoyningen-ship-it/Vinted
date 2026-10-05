@@ -29,6 +29,7 @@ export const helperAdapter: VintedAdapter = {
   verifySession: call("verifySession"),
   fetchOwnListings: call("fetchOwnListings"),
   fetchSales: call("fetchSales"),
+  fetchPurchases: call("fetchPurchases"),
   fetchFavourites: call("fetchFavourites"),
   fetchMessages: call("fetchMessages"),
   sendMessage: call("sendMessage"),

@@ -32,10 +32,15 @@ describe("templates", () => {
 
 describe("automation helpers", () => {
   it("reduces price, rounds down to 10 cents and respects the floor", () => {
-    expect(reducedPrice(2500, 10, null)).toBe(2250);
-    expect(reducedPrice(1999, 15, null)).toBe(1690);
+    // Even whole euros, always below the old price.
+    expect(reducedPrice(2400, 10, null)).toBe(2200);
+    expect(reducedPrice(3500, 10, null)).toBe(3200);
+    expect(reducedPrice(1900, 10, null)).toBe(1800);
+    expect(reducedPrice(2500, 10, null)).toBe(2200);
+    expect(reducedPrice(1000, 10, null)).toBe(800); // 9 € would round up to 10 €
+    expect(reducedPrice(1999, 15, null)).toBe(1600);
     expect(reducedPrice(1000, 50, 800)).toBe(800);
-    expect(reducedPrice(150, 50, null)).toBe(100);
+    expect(reducedPrice(150, 50, null)).toBe(200); // not below 2 € (the caller skips it: not cheaper)
   });
   it("matches keywords", () => {
     expect(matchesKeywords("Wie sind die MAßE?", ["maße", "länge"])).toBe(true);

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { env } from "../config/env.js";
 import { decodeVintedToken, formatDate, isAnonymous, isExpired } from "./token.js";
 import type {
-  RemoteFavourite, RemoteListing, RemoteListingStatus, RemoteMessage, RemoteSale,
+  RemoteFavourite, RemoteListing, RemoteListingStatus, RemoteMessage, RemotePurchase, RemoteSale,
   VintedAdapter, VintedProfile, VintedSession,
 } from "./types.js";
 import { VintedError } from "./types.js";
@@ -289,6 +289,19 @@ export const liveAdapter: VintedAdapter = {
     return (r.my_orders ?? []).map<RemoteSale>((o) => ({
       externalId: String(o.transaction_id), vintedItemId: o.item_id ? String(o.item_id) : null, title: o.title,
       priceCents: priceCents(o.price), currency: currency(o.price), buyer: o.buyer?.login ?? null, soldAt: o.date ?? new Date().toISOString(),
+    }));
+  },
+
+  async fetchPurchases(s) {
+    type Order = {
+      transaction_id: number; title?: string; date?: string; status?: string; transaction_user_status?: string; conversation_id?: number;
+      seller?: { login?: string }; opposite_user?: { login?: string }; user?: { login?: string };
+    };
+    const r = await getJson<{ my_orders?: Order[] }>(s, "/api/v2/my_orders?type=purchased&status=in_progress&page=1&per_page=50");
+    return (r.my_orders ?? []).map<RemotePurchase>((o) => ({
+      externalId: String(o.transaction_id), title: o.title ?? "Artikel", status: o.status ?? o.transaction_user_status ?? null,
+      seller: o.seller?.login ?? o.opposite_user?.login ?? o.user?.login ?? null,
+      conversationId: o.conversation_id ? String(o.conversation_id) : null, date: o.date ?? null,
     }));
   },
 

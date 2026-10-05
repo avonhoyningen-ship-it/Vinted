@@ -123,6 +123,14 @@ export const mockAdapter: VintedAdapter = {
   async fetchSales(s) {
     return [...ensure(s).sales];
   },
+  async fetchPurchases(s) {
+    // Two open purchases (seller still has to ship) with their chats.
+    const id = ensure(s).userId;
+    return [
+      { externalId: `p1-${id}`, title: "Carhartt Beanie", seller: "beanie_shop", status: "Bezahlt", conversationId: "7001", date: new Date().toISOString() },
+      { externalId: `p2-${id}`, title: "Nike Track Jacket", seller: "retro_rina", status: "Bezahlt", conversationId: "7002", date: new Date().toISOString() },
+    ];
+  },
   async fetchFavourites(s) {
     return [...ensure(s).favourites];
   },

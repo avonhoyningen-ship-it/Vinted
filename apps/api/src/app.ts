@@ -19,7 +19,9 @@ import { listingsRouter } from "./modules/listings/routes.js";
 import { pricingRouter } from "./modules/pricing/routes.js";
 import { analysisRouter } from "./modules/analysis/routes.js";
 import { repriceRouter } from "./modules/reprice/routes.js";
+import { outreachRouter } from "./modules/outreach/routes.js";
 import { setPriceExecutor } from "./modules/reprice/service.js";
+import { setOutreachExecutor } from "./modules/outreach/service.js";
 import { statsRouter } from "./modules/stats/routes.js";
 import { authRouter } from "./modules/system/authRoutes.js";
 import { systemRouter } from "./modules/system/routes.js";
@@ -57,6 +59,7 @@ export function createApp() {
     app.use("/api/assist", cloudAssistRouter);
     vintedClient.useAdapter(helperAdapter, 0);
     setPriceExecutor((job) => runOnHelper("reprice.item", job, { timeoutMs: 120_000 }));
+    setOutreachExecutor((job) => runOnHelper("outreach.send", job, { timeoutMs: 90_000 }));
   } else {
     // Login (cookie session) or bearer API_TOKEN; open only if neither is configured.
     app.use("/api/auth", authRouter);
@@ -71,6 +74,7 @@ export function createApp() {
   app.use("/api/pricing", pricingRouter);
   app.use("/api/analysis", analysisRouter);
   app.use("/api/reprice", repriceRouter);
+  app.use("/api/outreach", outreachRouter);
   // The posting assistant drives the Chrome on this PC – in the cloud the PC helper does that.
   if (env.appMode === "local") app.use("/api/assist", assistRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));

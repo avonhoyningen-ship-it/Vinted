@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/automations", label: "Automatisierungen", icon: "⚡" },
   { href: "/stats", label: "Statistik", icon: "📈" },
   { href: "/analyse", label: "Analyse", icon: "🔍" },
+  { href: "/nachrichten", label: "Nachrichten", icon: "✉️" },
   { href: "/settings", label: "Einstellungen", icon: "⚙" },
   ...(CLOUD ? [{ href: "/abo", label: "Abo", icon: "💳" }] : []),
 ];

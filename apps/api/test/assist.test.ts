@@ -68,6 +68,23 @@ const SELL_PAGE = `<!doctype html><html><body>
 
 let server: http.Server;
 const prices = new Map<string, number>(); // fake Vinted: item id → price in cents
+const chats: { path: string; text: string; offer: string | null }[] = []; // fake Vinted: messages/offers that arrived
+
+// Fake Vinted chat: optional offer dialog, message box, "Senden" shows the message in the chat.
+const CHAT_PAGE = (withOffer: boolean) => `<!doctype html><html><body>
+  <div id="log"></div>
+  ${withOffer ? `<button id="ob" onclick="document.getElementById('dlg').style.display='block'">Angebot machen</button>
+  <div id="dlg" role="dialog" style="display:none"><label for="op">Preis</label><input id="op" name="price">
+    <button onclick="window.offer=document.getElementById('op').value; document.getElementById('dlg').style.display='none'">Angebot senden</button></div>` : ""}
+  <textarea placeholder="Nachricht schreiben"></textarea>
+  <button id="send">Senden</button>
+  <script>
+    document.getElementById('send').onclick = () => {
+      const t = document.querySelector('textarea');
+      fetch('/sent?path=' + encodeURIComponent(location.pathname + location.search) + '&offer=' + encodeURIComponent(window.offer || '') + '&text=' + encodeURIComponent(t.value))
+        .then(() => { const p = document.createElement('p'); p.textContent = t.value; document.getElementById('log').append(p); t.value = ''; });
+    };
+  </script></body></html>`;
 let chrome: ChildProcess;
 let app: import("express").Express;
 let base = "";
@@ -88,6 +105,12 @@ beforeAll(async () => {
     res.setHeader("content-type", "text/html; charset=utf-8");
     const url = new URL(req.url ?? "/", "http://x");
     if (url.pathname.startsWith("/items/new")) return res.end(SELL_PAGE);
+    if (url.pathname.startsWith("/inbox/")) return res.end(CHAT_PAGE(false));
+    if (/^\/items\/\d+\/want_it\/new$/.test(url.pathname)) return res.end(CHAT_PAGE(true));
+    if (url.pathname === "/sent") {
+      chats.push({ path: url.searchParams.get("path")!, text: url.searchParams.get("text")!, offer: url.searchParams.get("offer") || null });
+      return res.end("ok");
+    }
     // Fake edit/save/item pages for "Preis senken"
     const edit = /^\/items\/(\d+)\/edit$/.exec(url.pathname);
     if (edit) {
@@ -311,7 +334,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
 
     const preview = (await request(app).post("/api/reprice/preview").send({ percent: 10, maxViews: 20, minDays: 7 })).body;
     expect(preview.map((p: { title: string; oldCents: number; newCents: number }) => [p.title, p.oldCents, p.newCents])).toEqual([
-      ["Ladenhüter Tee", 2400, 2160], ["Fremder Artikel", 3000, 2700],
+      ["Ladenhüter Tee", 2400, 2200], ["Fremder Artikel", 3000, 2800],
     ]);
 
     const start = await request(app).post("/api/reprice/start").send({ percent: 10, maxViews: 20, minDays: 7 });
@@ -323,14 +346,58 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     expect(done.items.map((i: { title: string; state: string }) => [i.title, i.state])).toEqual([["Ladenhüter Tee", "done"], ["Fremder Artikel", "failed"]]);
     expect(done.items[0].message).toBe("Preis geändert");
     expect(done.items[1].message).toMatch(/Bearbeiten nicht möglich/);
-    expect(prices.get("4242")).toBe(2160); // the fake Vinted really got the new price
+    expect(prices.get("4242")).toBe(2200); // the fake Vinted really got the new price
     const l = await db.get<{ price_cents: number; last_price_drop_at: string | null }>("SELECT price_cents, last_price_drop_at FROM listings WHERE vinted_item_id = '4242'");
-    expect(l).toMatchObject({ price_cents: 2160 });
+    expect(l).toMatchObject({ price_cents: 2200 });
     expect(l!.last_price_drop_at).not.toBeNull();
     expect(await db.get("SELECT reason FROM listing_price_changes ORDER BY id DESC LIMIT 1")).toEqual({ reason: "Preissenkung −10 %" });
 
     // Explicit selection works too; the popular item stays untouched otherwise.
     const pick = (await request(app).post("/api/reprice/preview").send({ percent: 50, minPriceCents: 1500, listingIds: [(await db.get<{ id: number }>("SELECT id FROM listings WHERE vinted_item_id = '5151'"))!.id] })).body;
     expect(pick).toEqual([expect.objectContaining({ title: "Beliebtes Shirt", oldCents: 2000, newCents: 1500, skip: null })]);
+  }, 90_000);
+
+  it("writes every seller of an open purchase in the Vinted-Chrome – once", async () => {
+    const acc = (await request(app).post("/api/accounts").send({ name: "Käufer-Shop", domain: "vinted.de", sessionToken: "token-buyer" })).body.account;
+    expect(acc.status).toBe("connected");
+    const pv = (await request(app).get("/api/outreach/preview").query({ kind: "purchases" })).body;
+    expect(pv.defaultText).toBe("Hey ich fahre bald in den Urlaub kannst du bitte möglichst schnell verschicken");
+    const mine = pv.targets.filter((t: { accountId: number }) => t.accountId === acc.id);
+    expect(mine.map((t: { name: string; path: string }) => [t.name, t.path])).toEqual([["beanie_shop", "/inbox/7001"], ["retro_rina", "/inbox/7002"]]);
+
+    const start = await request(app).post("/api/outreach/start").send({ kind: "purchases", keys: mine.map((t: { key: string }) => t.key), text: pv.defaultText });
+    expect(start.status).toBe(200);
+    const done = await waitFor(async () => {
+      const s = (await request(app).get("/api/outreach/status")).body;
+      return s.state === "done" && s;
+    }, 60_000);
+    expect(done.items.map((i: { state: string }) => i.state)).toEqual(["done", "done"]);
+    expect(chats.filter((c) => c.path.startsWith("/inbox/")).map((c) => [c.path, c.text])).toEqual([
+      ["/inbox/7001", pv.defaultText], ["/inbox/7002", pv.defaultText],
+    ]);
+    // Second time: nobody gets it twice.
+    const again = (await request(app).get("/api/outreach/preview").query({ kind: "purchases" })).body.targets.filter((t: { accountId: number }) => t.accountId === acc.id);
+    expect(again.every((t: { alreadySent: boolean }) => t.alreadySent)).toBe(true);
+    expect((await request(app).post("/api/outreach/start").send({ kind: "purchases", keys: mine.map((t: { key: string }) => t.key), text: "x" })).status).toBe(400);
+  }, 90_000);
+
+  it("sends an offer −10 % (even euros) to members who favourited an active item", async () => {
+    const { db } = await import("../src/db/index.js");
+    const acc = (await db.get<{ id: number }>("SELECT id FROM accounts WHERE name = 'Käufer-Shop'"))!;
+    const item = (await request(app).post("/api/archive").send({ title: "Favoriten Hoodie", price_cents: 3500 })).body;
+    const listing = (await request(app).post(`/api/archive/${item.id}/listings`).send({ accountId: acc.id, url: "https://www.vinted.de/items/6060-x", priceCents: 3500 })).body;
+    await db.run("INSERT INTO vinted_events (account_id, type, external_id, listing_id, vinted_user_id, vinted_username, occurred_at) VALUES (?, 'favourite', 'f1', ?, '777', 'lena_m', ?)",
+      [acc.id, listing.id, new Date().toISOString()]);
+    const pv = (await request(app).get("/api/outreach/preview").query({ kind: "favourites", percent: 10 })).body;
+    const t = pv.targets.find((x: { title: string }) => x.title === "Favoriten Hoodie");
+    expect(t).toMatchObject({ name: "lena_m", offerCents: 3200, oldCents: 3500, path: "/items/6060/want_it/new?receiver_id=777", skip: null });
+
+    await request(app).post("/api/outreach/start").send({ kind: "favourites", keys: [t.key], text: pv.defaultText, percent: 10 });
+    const done = await waitFor(async () => {
+      const s = (await request(app).get("/api/outreach/status")).body;
+      return s.state === "done" && s;
+    }, 60_000);
+    expect(done.items[0]).toMatchObject({ state: "done", message: "Angebot 32 € gesendet" });
+    expect(chats.at(-1)).toEqual({ path: "/items/6060/want_it/new?receiver_id=777", offer: "32", text: "Hey lena_m, du hast „Favoriten Hoodie“ favorisiert – ich mach dir ein Angebot: 32 € statt 35 € 🙂" });
   }, 90_000);
 });

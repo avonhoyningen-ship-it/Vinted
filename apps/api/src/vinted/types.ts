@@ -52,6 +52,18 @@ export interface RemoteSale {
   soldAt: string;
 }
 
+/** An own purchase that isn't finished yet (the seller still has to ship). */
+export interface RemotePurchase {
+  externalId: string;
+  title: string;
+  seller: string | null;
+  /** Vinted's status text, e.g. "Bezahlt – warte auf Versand" */
+  status: string | null;
+  /** Chat with the seller (Vinted inbox conversation), if known. */
+  conversationId: string | null;
+  date: string | null;
+}
+
 export interface RemoteFavourite {
   externalId: string;
   vintedItemId: string;
@@ -101,6 +113,8 @@ export interface VintedAdapter {
   verifySession(s: VintedSession): Promise<VintedProfile>;
   fetchOwnListings(s: VintedSession): Promise<RemoteListing[]>;
   fetchSales(s: VintedSession): Promise<RemoteSale[]>;
+  /** Own purchases that are still in progress (not shipped/finished). */
+  fetchPurchases(s: VintedSession): Promise<RemotePurchase[]>;
   fetchFavourites(s: VintedSession): Promise<RemoteFavourite[]>;
   fetchMessages(s: VintedSession): Promise<RemoteMessage[]>;
   sendMessage(s: VintedSession, input: SendMessageInput): Promise<void>;
