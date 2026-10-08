@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { env } from "../../config/env.js";
 import { currentUserId } from "../../db/index.js";
 import { HttpError } from "../../lib/http.js";
 import { chromeUrlFor, getAccount } from "../accounts/repo.js";
@@ -70,8 +71,11 @@ export async function startBatchReupload(listingIds: number[]): Promise<Reupload
   };
   const run = { status, stop: false };
   runs.set(userId, run);
+  let prepared = 0;
   void (async () => {
-    // 1) delete everything on Vinted first …
+    // Local: each article is prepared right after it was deleted (nothing gets lost if a later one fails).
+    // Cloud: the helper takes one batch per account, so they are handed over at the end.
+    const eachNow = env.appMode === "local";
     const ready = new Map<number, number[]>(); // account → items to upload again
     for (const item of status.items) {
       if (run.stop) { item.state = "skipped"; item.message = "gestoppt"; status.done++; continue; }
@@ -80,7 +84,12 @@ export async function startBatchReupload(listingIds: number[]): Promise<Reupload
         const { listing, message } = await deleteForReupload(item.listingId);
         item.state = "deleted";
         item.message = message;
-        ready.set(listing.account_id, [...(ready.get(listing.account_id) ?? []), listing.item_id]);
+        if (eachNow) {
+          await launcher([listing.item_id], listing.account_id).catch((e) => {
+            item.message = `Gelöscht, aber Vorbereiten fehlgeschlagen: ${(e as Error).message}`;
+          });
+        } else ready.set(listing.account_id, [...(ready.get(listing.account_id) ?? []), listing.item_id]);
+        prepared++;
       } catch (e) {
         item.state = "failed";
         item.message = (e as Error).message;
@@ -88,7 +97,6 @@ export async function startBatchReupload(listingIds: number[]): Promise<Reupload
       }
       status.done++;
     }
-    // 2) … then the assistant prepares them again (fresh texts, same price).
     for (const [accountId, itemIds] of ready) {
       try {
         await launcher(itemIds, accountId);
@@ -96,7 +104,7 @@ export async function startBatchReupload(listingIds: number[]): Promise<Reupload
         status.message = `Gelöscht, aber Vorbereiten fehlgeschlagen: ${(e as Error).message} – die Artikel liegen im Archiv und können über „Bei Vinted vorbereiten“ neu gestartet werden.`;
       }
     }
-    const n = [...ready.values()].flat().length;
+    const n = prepared;
     status.message ??= n ? `${n} gelöscht – der Vinted-Chrome bereitet sie jetzt neu vor. Danach jeweils „Hochladen“ klicken.` : "Nichts gelöscht.";
     status.state = "done";
   })();

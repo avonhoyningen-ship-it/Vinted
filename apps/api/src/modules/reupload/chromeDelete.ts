@@ -100,7 +100,7 @@ async function screenshot(page: Page, id: string) {
     const dir = path.join(ROOT_DIR, "data", "debug");
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `loeschen-${id}.png`);
-    await page.screenshot({ path: file, fullPage: false });
+    await page.screenshot({ path: file, fullPage: false, timeout: 5000 });
     return file;
   } catch {
     return null;
@@ -111,6 +111,7 @@ export async function deleteInChrome(job: DeleteJob): Promise<DeleteResult> {
   const browser = await connect(job.chromeUrl ?? undefined);
   const context = browser.contexts()[0] ?? (await browser.newContext());
   const page = await context.newPage();
+  page.setDefaultTimeout(20_000); // no single step may wait forever
   // A browser popup "Wirklich löschen? OK / Abbrechen" is answered with OK.
   page.on("dialog", (d) => { void d.accept().catch(() => {}); });
   const base = env.vintedBaseUrl ?? `https://www.${job.domain}`;
@@ -120,6 +121,19 @@ export async function deleteInChrome(job: DeleteJob): Promise<DeleteResult> {
     const shot = await screenshot(page, id);
     return { ok: false, message: shot ? `${message} (Bildschirmfoto: ${shot})` : message };
   };
+  // Hard limit per article: whatever Vinted does, after 2 minutes we move on to the next one.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<DeleteResult>((resolve) => {
+    timer = setTimeout(() => { void fail("Zeitüberschreitung – Vinted hat nicht reagiert, bitte im Vinted-Chrome prüfen").then(resolve); }, Number(process.env.DELETE_TIMEOUT_MS ?? 120_000));
+  });
+  try {
+    return await Promise.race([steps(), timeout]);
+  } finally {
+    clearTimeout(timer);
+    await page.close().catch(() => {});
+  }
+
+  async function steps(): Promise<DeleteResult> {
   try {
     const first = await page.goto(itemUrl, { waitUntil: "domcontentloaded" });
     if (LOGIN.test(page.url())) return { ok: false, message: "Im Vinted-Chrome ist niemand eingeloggt" };
@@ -154,7 +168,6 @@ export async function deleteInChrome(job: DeleteJob): Promise<DeleteResult> {
     return fail(confirm ? "Löschen nicht bestätigt – der Artikel ist noch online" : "Bestätigungs-Fenster von Vinted nicht gefunden");
   } catch (e) {
     return fail((e as Error).message);
-  } finally {
-    await page.close().catch(() => {});
+  }
   }
 }

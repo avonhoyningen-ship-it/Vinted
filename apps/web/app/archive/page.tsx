@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { AssistStartDialog } from "@/components/AssistStartDialog";
 import { Empty, ErrorBox, PageHead, StatusBadge } from "@/components/ui";
 import { euro, ITEM_STATUS, photoUrl } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -29,7 +30,12 @@ export default function ArchivePage() {
     if (brand) p.set("brand", brand);
     return `/archive?${p}`;
   }, [q, accountId, status, category, brand, sort, page]);
-  const { data, error } = useApi<Result>(path);
+  const { data, error, reload } = useApi<Result>(path);
+  // Upload again (articles that are not online right now).
+  const [selected, setSelected] = useState<number[]>([]);
+  const [assist, setAssist] = useState(false);
+  const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const canUpload = (i: Item) => i.status !== "active" && i.status !== "relisted" && i.status !== "queued";
   const pages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const reset = <T,>(fn: (v: T) => void) => (v: T) => { fn(v); setPage(1); };
 
@@ -74,11 +80,24 @@ export default function ArchivePage() {
         </label>
       </div>
       <ErrorBox error={error} />
-      {data && <div className="muted small" style={{ marginBottom: 8 }}>{data.total} Artikel</div>}
+      {data && (
+        <div className="row" style={{ marginBottom: 8 }}>
+          <span className="muted small">{data.total} Artikel{selected.length ? ` · ${selected.length} ausgewählt` : ""}</span>
+          <div className="spacer" />
+          {!!selected.length && <button className="btn small" onClick={() => setSelected([])}>Auswahl aufheben</button>}
+          <button className="btn primary small" disabled={!selected.length} onClick={() => setAssist(true)}>🤖 Bei Vinted vorbereiten ({selected.length})</button>
+        </div>
+      )}
       {data && !data.items.length && <div className="card"><Empty>Keine Artikel gefunden.</Empty></div>}
       <div className="item-grid">
         {data?.items.map((i) => (
-          <Link key={i.id} href={`/archive/${i.id}`} className="item-card">
+          <Link key={i.id} href={`/archive/${i.id}`} className="item-card" style={{ position: "relative" }}>
+            {canUpload(i) && (
+              <label title="Zum erneuten Hochladen auswählen" onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(i.id); }}
+                style={{ position: "absolute", top: 8, left: 8, zIndex: 2, background: "var(--surface)", borderRadius: 6, padding: "2px 4px" }}>
+                <input type="checkbox" readOnly checked={selected.includes(i.id)} aria-label="auswählen" />
+              </label>
+            )}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {i.cover_photo ? <img className="img" src={photoUrl(i.cover_photo)!} alt="" loading="lazy" /> : <div className="img" />}
             <div className="body">
@@ -90,6 +109,7 @@ export default function ArchivePage() {
           </Link>
         ))}
       </div>
+      {assist && <AssistStartDialog itemIds={selected} onClose={() => setAssist(false)} onStarted={() => { setAssist(false); setSelected([]); void reload(); }} />}
       {pages > 1 && (
         <div className="row" style={{ marginTop: 16, justifyContent: "center" }}>
           <button className="btn small" disabled={page <= 1} onClick={() => setPage(page - 1)}>← Zurück</button>

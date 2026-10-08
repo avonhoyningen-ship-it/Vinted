@@ -130,6 +130,7 @@ beforeAll(async () => {
       if (own[1]!.startsWith("81")) return res.end("<html><body>Dieser Artikel ist nicht mehr verfügbar</body></html>");
       res.statusCode = 404; return res.end("<html><body>Seite nicht gefunden</body></html>");
     }
+    if (own && own[1] === "8444") return; // Vinted hangs: never answers
     if (own && own[1] === "8222") {
       // Browser popup "Wirklich löschen?" (window.confirm)
       return res.end(`<!doctype html><html><body>Artikel online <button>Bearbeiten</button>
@@ -568,4 +569,18 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     await b.close();
     await request(app).post("/api/assist/stop");
   }, 150_000);
+
+  it("never hangs on one article: hard time limit, then the next one", async () => {
+    const { deleteInChrome } = await import("../src/modules/reupload/chromeDelete.js");
+    process.env.DELETE_TIMEOUT_MS = "4000";
+    const started = Date.now();
+    try {
+      const r = await deleteInChrome({ vintedItemId: "8444", domain: "vinted.de" });
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/Zeitüberschreitung/);
+      expect(Date.now() - started).toBeLessThan(15_000);
+    } finally {
+      delete process.env.DELETE_TIMEOUT_MS;
+    }
+  }, 60_000);
 });
