@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS listings (
   updated_at TEXT NOT NULL DEFAULT app_now(),
   UNIQUE (account_id, vinted_item_id)
 );
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS profile_missing_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_listings_account_status ON listings(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_listings_item ON listings(item_id);
 

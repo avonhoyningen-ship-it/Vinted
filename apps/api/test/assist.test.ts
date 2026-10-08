@@ -69,7 +69,8 @@ const SELL_PAGE = `<!doctype html><html><body>
 let server: http.Server;
 const prices = new Map<string, number>(); // fake Vinted: item id → price in cents
 const chats: { path: string; text: string; offer: string | null }[] = [];
-const deleted = new Set<string>(); // fake Vinted: deleted item ids // fake Vinted: messages/offers that arrived
+const deleted = new Set<string>(); // fake Vinted: deleted item ids
+let profileItems: { id: string; sold?: boolean }[] = []; // fake Vinted: what the member profile shows // fake Vinted: messages/offers that arrived
 
 // Fake Vinted chat: optional offer dialog, message box, "Senden" shows the message in the chat.
 const CHAT_PAGE = (withOffer: boolean) => `<!doctype html><html><body>
@@ -108,6 +109,14 @@ beforeAll(async () => {
     if (url.pathname.startsWith("/items/new")) return res.end(SELL_PAGE);
     if (url.pathname.startsWith("/inbox/")) return res.end(CHAT_PAGE(false));
     if (/^\/items\/\d+\/want_it\/new$/.test(url.pathname)) return res.end(CHAT_PAGE(true));
+    if (url.pathname.startsWith("/member/")) {
+      // Profile: first half right away, the rest is loaded when scrolling down (like Vinted).
+      const card = (i: { id: string; sold?: boolean }) => `<div class="card"><div><a href="/items/${i.id}-x">Artikel ${i.id}</a>${i.sold ? "<span>Verkauft</span>" : ""}</div></div>`;
+      const half = Math.ceil(profileItems.length / 2);
+      return res.end(`<!doctype html><html><body style="margin:0"><div id="list">${profileItems.slice(0, half).map(card).join("")}</div><div style="height:3000px"></div>
+        <script>let more = ${JSON.stringify(profileItems.slice(half).map(card))};
+        addEventListener('scroll', () => { if (more.length) { document.getElementById('list').insertAdjacentHTML('beforeend', more.join('')); more = []; } });</script></body></html>`);
+    }
     if (url.pathname === "/delete") {
       deleted.add(url.searchParams.get("id")!);
       return res.end("ok");
@@ -467,5 +476,33 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     const st = (await request(app).get("/api/assist/status")).body;
     expect(st.tabs.map((t: { itemId: number }) => t.itemId)).toEqual(expect.arrayContaining([a.item, b.item]));
     await request(app).post("/api/assist/stop");
+  }, 120_000);
+
+  it("checks the real Vinted profile: listings that aren't online leave 'Aktive Listings'", async () => {
+    const { db } = await import("../src/db/index.js");
+    const acc = (await db.get<{ id: number }>("SELECT id FROM accounts WHERE name = 'Käufer-Shop'"))!;
+    await db.run("UPDATE listings SET status = 'removed' WHERE account_id = ? AND status = 'active'", [acc.id]); // clean slate
+    const mk = async (vid: string) => {
+      const d = (await request(app).post("/api/archive").send({ title: `Profil ${vid}`, price_cents: 1500 })).body;
+      return (await request(app).post(`/api/archive/${d.id}/listings`).send({ accountId: acc.id, url: `https://www.vinted.de/items/${vid}-x`, priceCents: 1500 })).body.id as number;
+    };
+    const online1 = await mk("7101"); const online2 = await mk("7102"); const gone = await mk("7103"); const sold = await mk("7104");
+    const status = async (id: number) => (await db.get<{ status: string }>("SELECT status FROM listings WHERE id = ?", [id]))!.status;
+
+    // Vinted counts 3 active items, but the page only loaded 1 → nothing is changed.
+    await db.run("UPDATE accounts SET active_listings = 3 WHERE id = ?", [acc.id]);
+    profileItems = [{ id: "7101" }];
+    const { reconcileWithProfile } = await import("../src/modules/accounts/profileScan.js");
+    expect((await reconcileWithProfile(acc.id)).message).toMatch(/nicht vollständig/);
+    expect(await status(gone)).toBe("active");
+
+    // Full profile (second half loads on scroll): 7103 is not there, 7104 shows "Verkauft".
+    await db.run("UPDATE accounts SET active_listings = 2 WHERE id = ?", [acc.id]);
+    profileItems = [{ id: "7101" }, { id: "5555" }, { id: "7102" }, { id: "7104", sold: true }];
+    const res = await request(app).post("/api/accounts/reconcile");
+    expect(res.status).toBe(200);
+    const mine = res.body.results.find((r: { account: string }) => r.account === "Käufer-Shop");
+    expect(mine).toMatchObject({ kept: 2, removed: 1, sold: 1 });
+    expect([await status(online1), await status(online2), await status(gone), await status(sold)]).toEqual(["active", "active", "removed", "sold"]);
   }, 120_000);
 });

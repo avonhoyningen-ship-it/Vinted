@@ -331,6 +331,22 @@ function ActiveTab() {
     return () => { stop = true; };
   }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [checking, setChecking] = useState(false);
+
+  /** Looks at the real Vinted profile (in the Vinted-Chrome) and removes what isn't online. */
+  async function reconcile() {
+    setChecking(true);
+    try {
+      const r = await api<{ results: { account: string; message?: string; error?: string }[] }>("/accounts/reconcile", { method: "POST" });
+      for (const x of r.results) toast({ kind: x.error ? "error" : "info", text: `${x.account}: ${x.error ?? x.message}` });
+      void reload();
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    } finally {
+      setChecking(false);
+    }
+  }
+
   const reuploadable = data?.filter((l) => l.vinted_item_id) ?? [];
   const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const chosen = data?.filter((l) => selected.includes(l.id)) ?? [];
@@ -363,6 +379,11 @@ function ActiveTab() {
           ))}
         </div>
       )}
+      <div className="row">
+        <span className="small muted">Stimmt etwas nicht? Der Abgleich schaut in deinem Vinted-Profil nach, was wirklich online ist (über den Vinted-Chrome).</span>
+        <div className="spacer" />
+        <button className="btn" disabled={checking} onClick={reconcile}>{checking ? "Prüfe Vinted-Profil…" : "🔄 Mit Vinted abgleichen"}</button>
+      </div>
       {!!data?.length && (
         <div className="row">
           <span className="muted">{selected.length} ausgewählt</span>

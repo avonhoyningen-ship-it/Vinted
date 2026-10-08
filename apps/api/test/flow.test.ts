@@ -212,6 +212,14 @@ describe("end-to-end (mock mode)", () => {
     await db.run("UPDATE listings SET status = 'removed' WHERE id = ?", [l.id]);
   });
 
+  it("keeps listings out of 'active' that the real Vinted profile didn't show", async () => {
+    const l = (await db.get<{ id: number }>("SELECT id FROM listings WHERE account_id = ? AND status = 'active' AND vinted_item_id IS NOT NULL ORDER BY id LIMIT 1", [accountA]))!;
+    await db.run("UPDATE listings SET status = 'removed', profile_missing_at = ? WHERE id = ?", [new Date().toISOString(), l.id]);
+    expect((await request(app).post(`/api/accounts/${accountA}/sync`)).status).toBe(200); // the API still lists it as active
+    expect((await db.get<{ status: string }>("SELECT status FROM listings WHERE id = ?", [l.id]))!.status).toBe("removed");
+    await db.run("UPDATE listings SET status = 'active', profile_missing_at = NULL, ended_at = NULL WHERE id = ?", [l.id]);
+  });
+
   it("analyses only listings that really are in the Vinted shop", async () => {
     // Marked as uploaded without a link: one matches a shop item by title, one doesn't exist on Vinted.
     // (Earlier tests sold a random listing, so take one that is still active.)

@@ -113,7 +113,9 @@ export async function syncAccount(accountId: number): Promise<SyncResult> {
         result.imported++;
         continue;
       }
-      const status = local.status === "sold" ? "sold" : r.status === "hidden" ? "hidden" : r.status === "active" ? "active" : local.status;
+      // Not on the real Vinted profile (checked in the Vinted-Chrome) → stays out of "active" until it shows up there again.
+      const offProfile = !!(local as ListingRow & { profile_missing_at?: string | null }).profile_missing_at;
+      const status = local.status === "sold" ? "sold" : r.status === "hidden" ? "hidden" : r.status === "active" && !offProfile ? "active" : local.status;
       await db.run("UPDATE listings SET favourites = ?, views = ?, price_cents = ?, status = ?, ended_at = CASE WHEN ? = 'active' THEN NULL ELSE ended_at END, updated_at = ? WHERE id = ?",
         [r.favourites, r.views, r.priceCents, status, status, nowIso(), local.id]);
       if (status !== local.status) await recomputeItemStatus(local.item_id);

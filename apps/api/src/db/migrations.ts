@@ -367,4 +367,10 @@ CREATE TABLE outreach_log (
   UNIQUE (account_id, kind, target_key)
 );`,
   },
+  {
+    id: 10,
+    name: "listing_profile_missing",
+    // Set when the real Vinted profile didn't show the listing: the sync must not mark it active again.
+    sql: `ALTER TABLE listings ADD COLUMN profile_missing_at TEXT;`,
+  },
 ];

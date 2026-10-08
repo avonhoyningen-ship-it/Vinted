@@ -4,6 +4,7 @@ import { env } from "../../config/env.js";
 import { h, HttpError, idParam } from "../../lib/http.js";
 import { importChromeLogin } from "./chromeLogin.js";
 import { startVintedChromes } from "./chromeLaunch.js";
+import { reconcileWithProfile } from "./profileScan.js";
 import {
   accountInput, accountPatch, createAccount, deleteAccount, disconnectAccount, getAccount, listAccounts, toPublic, updateAccount, VINTED_DOMAINS,
 } from "./repo.js";
@@ -63,6 +64,21 @@ accountsRouter.patch("/:id", h(async (req, res) => {
 }));
 
 /** Verifies the session and syncs listings, sales, favourites and messages. */
+/** "Was ist wirklich online?" – checks every connected account's Vinted profile in the Vinted-Chrome. */
+accountsRouter.post("/reconcile", h(async (_req, res) => {
+  const accounts = await db.all<{ id: number; name: string }>("SELECT id, name FROM accounts WHERE status = 'connected' AND vinted_user_id IS NOT NULL ORDER BY id");
+  if (!accounts.length) throw new HttpError(400, "Kein verbundener Vinted-Account");
+  const results = [];
+  for (const a of accounts) {
+    try {
+      results.push({ account: a.name, ...(await reconcileWithProfile(a.id)) });
+    } catch (e) {
+      results.push({ account: a.name, error: (e as Error).message });
+    }
+  }
+  res.json({ results });
+}));
+
 /** Local dashboard: starts the Vinted-Chrome(s) that aren't running (also done at dashboard start). */
 accountsRouter.post("/chrome/start", h(async (_req, res) => {
   if (env.appMode === "cloud") throw new HttpError(400, "In der Cloud-Version startet der PC-Helfer Chrome.");

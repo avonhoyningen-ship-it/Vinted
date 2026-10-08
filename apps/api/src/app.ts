@@ -22,6 +22,7 @@ import { repriceRouter } from "./modules/reprice/routes.js";
 import { outreachRouter } from "./modules/outreach/routes.js";
 import { reuploadRouter } from "./modules/reupload/routes.js";
 import { setReuploadDeps } from "./modules/reupload/service.js";
+import { setProfileScanner } from "./modules/accounts/profileScan.js";
 import { setPriceExecutor } from "./modules/reprice/service.js";
 import { setOutreachExecutor } from "./modules/outreach/service.js";
 import { statsRouter } from "./modules/stats/routes.js";
@@ -62,6 +63,7 @@ export function createApp() {
     vintedClient.useAdapter(helperAdapter, 0);
     setPriceExecutor((job) => runOnHelper("reprice.item", job, { timeoutMs: 120_000 }));
     setOutreachExecutor((job) => runOnHelper("outreach.send", job, { timeoutMs: 90_000 }));
+    setProfileScanner((job) => runOnHelper("profile.scan", job, { timeoutMs: 240_000 }));
     setReuploadDeps({ deleter: (job) => runOnHelper("reupload.delete", job, { timeoutMs: 90_000 }), launcher: startCloudAssist });
   } else {
     // Login (cookie session) or bearer API_TOKEN; open only if neither is configured.

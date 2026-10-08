@@ -2,6 +2,7 @@ import { env } from "../config/env.js";
 import { db, forEachUser, withLock } from "../db/index.js";
 import { importChromeLogin } from "../modules/accounts/chromeLogin.js";
 import { syncAccount } from "../modules/accounts/sync.js";
+import { reconcileWithProfile } from "../modules/accounts/profileScan.js";
 import { VintedError } from "../vinted/vintedClient.js";
 import { runDueActions, scheduleStaleListingActions } from "../modules/automations/engine.js";
 import { processDueQueue } from "../modules/listings/queue.js";
@@ -43,6 +44,21 @@ async function renewFromChrome(id: number): Promise<boolean> {
   }
 }
 
+/**
+ * Local: when the dashboard shows more active listings than Vinted counts for the account,
+ * look at the real profile in the Vinted-Chrome and remove what isn't online (at most every 6 h).
+ */
+const lastProfileCheck = new Map<number, number>();
+async function checkAgainstProfile(id: number) {
+  if (env.appMode !== "local" || Date.now() - (lastProfileCheck.get(id) ?? 0) < 6 * 3600_000) return;
+  const a = await db.get<{ active_listings: number; mine: number }>(
+    "SELECT active_listings, (SELECT COUNT(*) FROM listings l WHERE l.account_id = a.id AND l.status = 'active') AS mine FROM accounts a WHERE id = ?", [id]);
+  if (!a || Number(a.mine) <= Number(a.active_listings)) return;
+  lastProfileCheck.set(id, Date.now());
+  const r = await reconcileWithProfile(id).catch((e) => ({ message: (e as Error).message }));
+  console.log(`[poll] account ${id}: Abgleich mit dem Vinted-Profil – ${r.message}`);
+}
+
 /** Syncs every connected account whose last sync is older than the poll interval. */
 export async function pollAccounts(force = false) {
   const cutoff = new Date(Date.now() - env.pollIntervalMinutes * 60_000).toISOString();
@@ -52,6 +68,7 @@ export async function pollAccounts(force = false) {
   for (const { id } of due) {
     try {
       await syncAccount(id);
+      await checkAgainstProfile(id);
     } catch (e) {
       // Local: login expired → take the current one from the Vinted-Chrome and try once more.
       if (env.appMode === "local" && e instanceof VintedError && e.code === "auth" && (await renewFromChrome(id))) continue;

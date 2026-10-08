@@ -31,6 +31,7 @@ export interface HelperDeps {
   changePrice?(job: import("../modules/reprice/chromePrice.js").PriceJob): Promise<import("../modules/reprice/chromePrice.js").PriceResult>;
   sendMessage?(job: import("../modules/outreach/chromeOutreach.js").OutreachJob): Promise<import("../modules/outreach/chromeOutreach.js").OutreachResult>;
   deleteListing?(job: import("../modules/reupload/chromeDelete.js").DeleteJob): Promise<import("../modules/reupload/chromeDelete.js").DeleteResult>;
+  scanProfile?(job: import("../modules/accounts/profileScan.js").ScanJob): Promise<import("../modules/accounts/profileScan.js").ScanResult>;
   assistant: {
     setSource(s: AssistSource): void;
     start(itemIds: number[], accountId: number): Promise<AssistStatus>;
@@ -157,6 +158,11 @@ export function createHelper(deps: HelperDeps) {
     async "outreach.send"(p) {
       if (!deps.sendMessage) throw new Error("Dieser PC-Helfer kann noch keine Nachrichten senden – bitte aktualisieren");
       return deps.sendMessage(p as unknown as import("../modules/outreach/chromeOutreach.js").OutreachJob);
+    },
+
+    async "profile.scan"(p) {
+      if (!deps.scanProfile) throw new Error("Dieser PC-Helfer kann das Vinted-Profil noch nicht prüfen – bitte aktualisieren");
+      return deps.scanProfile(p as unknown as import("../modules/accounts/profileScan.js").ScanJob);
     },
 
     async "reupload.delete"(p) {
