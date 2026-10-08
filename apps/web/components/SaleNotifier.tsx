@@ -74,6 +74,13 @@ export function SaleNotifier() {
         window.dispatchEvent(new CustomEvent("reprice", { detail: status }));
         if (status.state === "done") window.dispatchEvent(new CustomEvent("dashboard-refresh"));
       });
+      es.addEventListener("duplicate", (ev) => {
+        const e = JSON.parse((ev as MessageEvent).data);
+        const text = `„${e.titles[0]}“ ist ${e.count}× online auf ${e.accountName}`;
+        toast({ kind: "error", text: <>⛔ <strong>Stopp, doppelt online!</strong><br />{text}</> });
+        if ("Notification" in window && Notification.permission === "granted") new Notification("Stopp, Artikel doppelt online!", { body: text });
+        window.dispatchEvent(new CustomEvent("duplicate"));
+      });
       es.addEventListener("account_status", (ev) => {
         const e = JSON.parse((ev as MessageEvent).data);
         if (e.status === "error") toast({ kind: "error", text: <>Account-Fehler: {e.error}</> });

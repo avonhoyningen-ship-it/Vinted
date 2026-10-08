@@ -5,6 +5,7 @@ import { syncAccount } from "../modules/accounts/sync.js";
 import { VintedError } from "../vinted/vintedClient.js";
 import { runDueActions, scheduleStaleListingActions } from "../modules/automations/engine.js";
 import { processDueQueue } from "../modules/listings/queue.js";
+import { watchDuplicates } from "../modules/duplicates/service.js";
 
 /**
  * Background loops. Each loop is guarded against overlap; intervals are
@@ -74,6 +75,8 @@ export function startWorkers() {
     loop("poll", 60_000, () => withLock("jobs:poll", () => forEachUser(() => pollAccounts()))),
     loop("publish", 60_000, () => withLock("jobs:publish", () => forEachUser(processDueQueue)), 10_000),
     loop("actions", 60_000, () => withLock("jobs:actions", () => forEachUser(() => runDueActions()))),
+    // Articles online twice on the same account → warning in the dashboard.
+    loop("duplicates", 10 * 60_000, () => withLock("jobs:duplicates", () => forEachUser(() => watchDuplicates())), 90_000),
     loop("stale", 60 * 60_000, () => withLock("jobs:stale", () => forEachUser(() => scheduleStaleListingActions())), 30_000),
   ];
   console.log(`[workers] gestartet (Polling alle ${env.pollIntervalMinutes} min, Veröffentlichung alle ${env.publishIntervalMinutes} min)`);

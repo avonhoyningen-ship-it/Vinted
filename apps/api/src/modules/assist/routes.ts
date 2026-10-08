@@ -3,6 +3,7 @@ import { z } from "zod";
 import { h } from "../../lib/http.js";
 import { getAssistStatus, setAssistSource, skipAssist, startAssist, stopAssist } from "./assistant.js";
 import { localAssistSource } from "./localSource.js";
+import { assertNotOnline } from "../duplicates/service.js";
 
 setAssistSource(localAssistSource);
 
@@ -13,10 +14,12 @@ assistRouter.get("/status", (_req, res) => {
 });
 
 assistRouter.post("/start", h(async (req, res) => {
-  const { itemIds, accountId } = z.object({
+  const { itemIds, accountId, force } = z.object({
     itemIds: z.array(z.number().int().positive()).min(1).max(200),
     accountId: z.number().int().positive(),
+    force: z.boolean().optional(),
   }).parse(req.body);
+  await assertNotOnline(itemIds, accountId, force);
   res.json(await startAssist(itemIds, accountId));
 }));
 

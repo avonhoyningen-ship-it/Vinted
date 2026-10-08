@@ -25,6 +25,23 @@ export default function AccountDetailPage() {
   const { data, error, reload } = useApi<Detail>(`/accounts/${id}`);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reupload, setReupload] = useState<Listing | null>(null);
+  const [reuploading, setReuploading] = useState(false);
+
+  /** ♻️ Delete on Vinted, then the assistant prepares it again with fresh texts. */
+  async function doReupload(l: Listing) {
+    setReuploading(true);
+    try {
+      await api(`/reupload/${l.id}`, { method: "POST" });
+      toast({ kind: "info", text: <>♻️ „{l.title}“ auf Vinted gelöscht – der Vinted-Chrome bereitet ihn gerade neu vor. Danach nur noch „Hochladen“ klicken.</> });
+      setReupload(null);
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    } finally {
+      setReuploading(false);
+      void reload();
+    }
+  }
 
   async function run(label: string, fn: () => Promise<unknown>) {
     setBusy(true);
@@ -83,7 +100,10 @@ export default function AccountDetailPage() {
                       <td className="num">{l.favourites}</td>
                       <td className="num">{l.views}</td>
                       <td>{dateTime(l.listed_at)}</td>
-                      <td>{l.url && <a href={l.url} target="_blank" rel="noreferrer">Vinted ↗</a>}</td>
+                      <td><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap", gap: 6 }}>
+                        {l.url && <a href={l.url} target="_blank" rel="noreferrer">Vinted ↗</a>}
+                        {l.vinted_item_id && <button className="btn small" title="Auf Vinted löschen und neu hochladen" onClick={() => setReupload(l)}>♻️ Re-Upload</button>}
+                      </div></td>
                     </tr>
                   ))}
                 </tbody>
@@ -127,6 +147,22 @@ export default function AccountDetailPage() {
       {editing && (
         <Modal title="Account bearbeiten" onClose={() => setEditing(false)}>
           <AccountForm initial={a} onSaved={() => { setEditing(false); void reload(); }} onCancel={() => setEditing(false)} />
+        </Modal>
+      )}
+      {reupload && (
+        <Modal title="♻️ Re-Upload" onClose={() => !reuploading && setReupload(null)}>
+          <div className="stack">
+            <div><strong>{reupload.title}</strong></div>
+            <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Der Artikel wird auf Vinted <strong>gelöscht</strong> (Favoriten und Aufrufe gehen dabei verloren).</li>
+              <li>Danach öffnet der Vinted-Chrome das Formular neu ausgefüllt – die KI schreibt Titel und Beschreibung frisch, Preis und Fotos bleiben.</li>
+              <li>Du prüfst kurz und klickst selbst auf <strong>„Hochladen“</strong>.</li>
+            </ol>
+            <div className="row"><div className="spacer" />
+              <button className="btn" disabled={reuploading} onClick={() => setReupload(null)}>Abbrechen</button>
+              <button className="btn primary" disabled={reuploading} onClick={() => doReupload(reupload)}>{reuploading ? "Lösche auf Vinted…" : "Löschen & neu vorbereiten"}</button>
+            </div>
+          </div>
         </Modal>
       )}
     </>

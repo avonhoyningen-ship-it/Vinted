@@ -68,7 +68,8 @@ const SELL_PAGE = `<!doctype html><html><body>
 
 let server: http.Server;
 const prices = new Map<string, number>(); // fake Vinted: item id → price in cents
-const chats: { path: string; text: string; offer: string | null }[] = []; // fake Vinted: messages/offers that arrived
+const chats: { path: string; text: string; offer: string | null }[] = [];
+const deleted = new Set<string>(); // fake Vinted: deleted item ids // fake Vinted: messages/offers that arrived
 
 // Fake Vinted chat: optional offer dialog, message box, "Senden" shows the message in the chat.
 const CHAT_PAGE = (withOffer: boolean) => `<!doctype html><html><body>
@@ -107,6 +108,17 @@ beforeAll(async () => {
     if (url.pathname.startsWith("/items/new")) return res.end(SELL_PAGE);
     if (url.pathname.startsWith("/inbox/")) return res.end(CHAT_PAGE(false));
     if (/^\/items\/\d+\/want_it\/new$/.test(url.pathname)) return res.end(CHAT_PAGE(true));
+    if (url.pathname === "/delete") {
+      deleted.add(url.searchParams.get("id")!);
+      return res.end("ok");
+    }
+    const own = /^\/items\/(\d+)$/.exec(url.pathname);
+    if (own && deleted.has(own[1]!)) { res.statusCode = 404; return res.end("<html><body>Seite nicht gefunden</body></html>"); }
+    if (own && own[1]!.startsWith("80")) {
+      // Own item with "Löschen" + confirm dialog
+      return res.end(`<!doctype html><html><body>Artikel online <button onclick="document.getElementById('d').style.display='block'">Löschen</button>
+        <div id="d" role="dialog" style="display:none">Wirklich löschen? <button onclick="fetch('/delete?id=${own[1]}').then(() => location.href = '/')">Artikel löschen</button></div></body></html>`);
+    }
     if (url.pathname === "/sent") {
       chats.push({ path: url.searchParams.get("path")!, text: url.searchParams.get("text")!, offer: url.searchParams.get("offer") || null });
       return res.end("ok");
@@ -399,5 +411,33 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     }, 60_000);
     expect(done.items[0]).toMatchObject({ state: "done", message: "Angebot 32 € gesendet" });
     expect(chats.at(-1)).toEqual({ path: "/items/6060/want_it/new?receiver_id=777", offer: "32", text: "Hey lena_m, du hast „Favoriten Hoodie“ favorisiert – ich mach dir ein Angebot: 32 € statt 35 € 🙂" });
+  }, 90_000);
+
+  it("re-uploads an online listing: deleted on Vinted, then prepared again", async () => {
+    const { db } = await import("../src/db/index.js");
+    const acc = (await db.get<{ id: number }>("SELECT id FROM accounts WHERE name = 'Käufer-Shop'"))!;
+    const jpg = await sharp({ create: { width: 60, height: 80, channels: 3, background: "#c80" } }).jpeg().toBuffer();
+    const draft = (await request(app).post("/api/listings/drafts").attach("photos", jpg, "r.jpg").field("data", JSON.stringify({ title: "Reupload Weste", price_cents: 2000 }))).body.item;
+    const listing = (await request(app).post(`/api/archive/${draft.id}/listings`).send({ accountId: acc.id, url: "https://www.vinted.de/items/8080-weste", priceCents: 2000 })).body;
+
+    // Uploading it again while it is online: stop.
+    const dup = await request(app).post("/api/assist/start").send({ itemIds: [draft.id], accountId: acc.id });
+    expect(dup.status).toBe(409);
+    expect(dup.body.error).toMatch(/Stopp! Schon online/);
+
+    const res = await request(app).post(`/api/reupload/${listing.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.deleted).toBe("Auf Vinted gelöscht");
+    expect(deleted.has("8080")).toBe(true);
+    expect((await db.get<{ status: string }>("SELECT status FROM listings WHERE id = ?", [listing.id]))!.status).toBe("removed");
+    expect(res.body.assist.tabs.some((t: { itemId: number }) => t.itemId === draft.id)).toBe(true); // the assistant prepares it again
+    await request(app).post("/api/assist/stop");
+
+    // Not an own item / no delete button → clear error, listing stays online.
+    const other = (await request(app).post(`/api/archive/${draft.id}/listings`).send({ accountId: acc.id, url: "https://www.vinted.de/items/9191-x", priceCents: 2000 })).body;
+    const bad = await request(app).post(`/api/reupload/${other.id}`);
+    expect(bad.status).toBe(502);
+    expect(bad.body.error).toMatch(/Löschen/);
+    expect((await db.get<{ status: string }>("SELECT status FROM listings WHERE id = ?", [other.id]))!.status).toBe("active");
   }, 90_000);
 });

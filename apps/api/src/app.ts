@@ -4,7 +4,7 @@ import { env } from "./config/env.js";
 import { requireAuth } from "./lib/auth.js";
 import { errorHandler, h, idParam } from "./lib/http.js";
 import { helperAdapter } from "./cloud/helperAdapter.js";
-import { cloudAssistRouter, connectAccountViaHelper, helperRouter, helperTokensRouter } from "./cloud/helperRoutes.js";
+import { cloudAssistRouter, connectAccountViaHelper, helperRouter, helperTokensRouter, startCloudAssist } from "./cloud/helperRoutes.js";
 import { runOnHelper } from "./cloud/helperHub.js";
 import { vintedClient } from "./vinted/vintedClient.js";
 import { cloudAuth } from "./cloud/auth.js";
@@ -20,6 +20,8 @@ import { pricingRouter } from "./modules/pricing/routes.js";
 import { analysisRouter } from "./modules/analysis/routes.js";
 import { repriceRouter } from "./modules/reprice/routes.js";
 import { outreachRouter } from "./modules/outreach/routes.js";
+import { reuploadRouter } from "./modules/reupload/routes.js";
+import { setReuploadDeps } from "./modules/reupload/service.js";
 import { setPriceExecutor } from "./modules/reprice/service.js";
 import { setOutreachExecutor } from "./modules/outreach/service.js";
 import { statsRouter } from "./modules/stats/routes.js";
@@ -60,6 +62,7 @@ export function createApp() {
     vintedClient.useAdapter(helperAdapter, 0);
     setPriceExecutor((job) => runOnHelper("reprice.item", job, { timeoutMs: 120_000 }));
     setOutreachExecutor((job) => runOnHelper("outreach.send", job, { timeoutMs: 90_000 }));
+    setReuploadDeps({ deleter: (job) => runOnHelper("reupload.delete", job, { timeoutMs: 90_000 }), launcher: startCloudAssist });
   } else {
     // Login (cookie session) or bearer API_TOKEN; open only if neither is configured.
     app.use("/api/auth", authRouter);
@@ -75,6 +78,7 @@ export function createApp() {
   app.use("/api/analysis", analysisRouter);
   app.use("/api/reprice", repriceRouter);
   app.use("/api/outreach", outreachRouter);
+  app.use("/api", reuploadRouter);
   // The posting assistant drives the Chrome on this PC – in the cloud the PC helper does that.
   if (env.appMode === "local") app.use("/api/assist", assistRouter);
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));

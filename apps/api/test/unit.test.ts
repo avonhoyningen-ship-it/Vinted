@@ -182,3 +182,16 @@ describe("AI sales kit parsing", () => {
     expect(parseSuggestion({ ...base, condition: null, parcel_size: null })).toMatchObject({ condition: "very_good", parcel_size: "Mittel" });
   });
 });
+
+describe("duplicate photos", () => {
+  it("recognises the same photo after resizing/recompression, not a different one", async () => {
+    const sharp = (await import("sharp")).default;
+    const { photoHash, hammingDistance } = await import("../src/modules/duplicates/service.js");
+    const svg = (c: string, shape: string) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#eee"/>${shape.replace("C", c)}</svg>`);
+    const shirt = await sharp(svg("#123", '<rect x="80" y="60" width="240" height="380" fill="C"/><circle cx="200" cy="200" r="60" fill="#f00"/>')).jpeg().toBuffer();
+    const smaller = await sharp(shirt).resize(200).jpeg({ quality: 50 }).toBuffer();
+    const other = await sharp(svg("#123", '<rect x="20" y="300" width="360" height="120" fill="C"/>')).jpeg().toBuffer();
+    expect(hammingDistance(await photoHash(shirt), await photoHash(smaller))).toBeLessThanOrEqual(6);
+    expect(hammingDistance(await photoHash(shirt), await photoHash(other))).toBeGreaterThan(6);
+  });
+});

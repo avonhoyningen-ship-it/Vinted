@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { CLOUD } from "@/lib/mode";
 import type { Account } from "@/lib/types";
@@ -12,16 +12,20 @@ export function AssistStartDialog({ itemIds, onClose, onStarted }: { itemIds: nu
   const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stop, setStop] = useState<string | null>(null);
   const chosen = accountId || String(accounts.data?.[0]?.id ?? "");
 
-  async function start() {
+  async function start(force = false) {
     setBusy(true);
     setError(null);
+    setStop(null);
     try {
-      await api("/assist/start", { method: "POST", json: { itemIds, accountId: Number(chosen) } });
+      await api("/assist/start", { method: "POST", json: { itemIds, accountId: Number(chosen), force } });
       onStarted();
     } catch (e) {
-      setError((e as Error).message);
+      // 409 = already online on this account: stop and ask.
+      if (e instanceof ApiError && e.status === 409) setStop(e.message);
+      else setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -31,6 +35,13 @@ export function AssistStartDialog({ itemIds, onClose, onStarted }: { itemIds: nu
     <Modal title={`🤖 ${itemIds.length} Artikel bei Vinted vorbereiten`} onClose={onClose}>
       <div className="stack">
         <ErrorBox error={error} />
+        {stop && (
+          <div className="alert bad stack" style={{ gap: 8 }}>
+            <strong>⛔ {stop}</strong>
+            <span className="small">Doppelte Artikel schaden deinem Ranking bei Vinted. Nimm den Artikel aus der Auswahl oder lösche den alten vorher (♻️ Re-Upload beim Account).</span>
+            <div className="row"><div className="spacer" /><button className="btn small" onClick={() => start(true)}>Trotzdem hochladen</button></div>
+          </div>
+        )}
         <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
           <li>Das Vinted-Chrome muss laufen („Chrome fuer Vinted starten.bat“) und du musst dort bei Vinted eingeloggt sein{CLOUD ? " – außerdem der PC-Helfer („PC-Helfer starten.bat“)" : ""}.</li>
           <li>Das Dashboard öffnet dort für jeden Artikel einen eigenen Tab „Artikel verkaufen“ und füllt Fotos, Titel, Beschreibung, Preis, Kategorie, Marke, Größe, Zustand, Farbe, Maße und Paketgröße aus – einen nach dem anderen, bitte so lange warten.</li>
@@ -43,7 +54,7 @@ export function AssistStartDialog({ itemIds, onClose, onStarted }: { itemIds: nu
           </select>
         </label>
         <div className="row"><div className="spacer" /><button className="btn" onClick={onClose}>Abbrechen</button>
-          <button className="btn primary" disabled={busy || !chosen} onClick={start}>{busy ? "Verbinde mit Chrome…" : "Starten"}</button></div>
+          <button className="btn primary" disabled={busy || !chosen} onClick={() => start()}>{busy ? "Verbinde mit Chrome…" : "Starten"}</button></div>
       </div>
     </Modal>
   );

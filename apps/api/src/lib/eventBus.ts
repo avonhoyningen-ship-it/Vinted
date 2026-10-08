@@ -10,7 +10,8 @@ export type DashboardEvent =
   | { type: "queue_failed"; accountId: number; itemId: number; error: string }
   | { type: "account_status"; accountId: number; status: string; error?: string | null }
   | { type: "assist"; status: AssistStatus }
-  | { type: "reprice"; status: RepriceStatus };
+  | { type: "reprice"; status: RepriceStatus }
+  | { type: "duplicate"; accountId: number; accountName: string; titles: string[]; count: number };
 
 /** Progress of a "Preis senken" run. */
 export interface RepriceStatus {

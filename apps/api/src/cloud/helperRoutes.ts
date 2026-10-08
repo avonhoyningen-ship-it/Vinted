@@ -9,6 +9,7 @@ import { chromeUrlFor, getAccount, toPublic } from "../modules/accounts/repo.js"
 import { syncAccount } from "../modules/accounts/sync.js";
 import { assistData, checkAssistItems, linkUploadedListing } from "../modules/assist/localSource.js";
 import { refreshForUpload } from "../modules/listings/salesKit.js";
+import { assertNotOnline } from "../modules/duplicates/service.js";
 import { completeJob, createHelperToken, helperStatus, pollJobs, runOnHelper, userForHelperToken } from "./helperHub.js";
 import { getUser, hasAccess } from "./users.js";
 
@@ -62,12 +63,20 @@ cloudAssistRouter.get("/status", h(async (_req, res) => {
   res.json(eventBus.lastAssist.get(res.locals.userId) ?? { state: "idle", itemId: null, title: null, position: 0, total: 0, filled: [], missing: [], message: null, done: [], fields: [], tabs: [] });
 }));
 
-cloudAssistRouter.post("/start", h(async (req, res) => {
-  const { itemIds, accountId } = z.object({ itemIds: z.array(z.number().int().positive()).min(1).max(50), accountId: z.number().int().positive() }).parse(req.body);
+/** Starts the posting assistant on the user's PC helper. */
+export async function startCloudAssist(itemIds: number[], accountId: number) {
   await checkAssistItems(itemIds, accountId);
   const items = [];
   for (const id of itemIds) items.push(await assistData(id, accountId));
-  res.json(await runOnHelper("assist.start", { accountId, items }, { timeoutMs: 45_000 }));
+  return runOnHelper("assist.start", { accountId, items }, { timeoutMs: 45_000 });
+}
+
+cloudAssistRouter.post("/start", h(async (req, res) => {
+  const { itemIds, accountId, force } = z.object({
+    itemIds: z.array(z.number().int().positive()).min(1).max(50), accountId: z.number().int().positive(), force: z.boolean().optional(),
+  }).parse(req.body);
+  await assertNotOnline(itemIds, accountId, force);
+  res.json(await startCloudAssist(itemIds, accountId));
 }));
 
 cloudAssistRouter.post("/skip", h(async (req, res) => {

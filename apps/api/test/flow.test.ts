@@ -191,6 +191,27 @@ describe("end-to-end (mock mode)", () => {
     expect(await startVintedChromes({ chrome: null })).toEqual([expect.stringMatching(/Chrome nicht gefunden/)]);
   });
 
+  it("finds articles that are online twice and warns once", async () => {
+    const { findDuplicates, watchDuplicates } = await import("../src/modules/duplicates/service.js");
+    const { eventBus } = await import("../src/lib/eventBus.js");
+    const first = (await db.get<{ title: string }>("SELECT title FROM listings WHERE account_id = ? AND status = 'active' ORDER BY id LIMIT 1", [accountA]))!;
+    const copy = (await request(app).post("/api/archive").send({ title: first.title, price_cents: 1000 })).body;
+    const l = (await request(app).post(`/api/archive/${copy.id}/listings`).send({ accountId: accountA, url: "https://www.vinted.de/items/4455-copy" })).body;
+    const groups = await findDuplicates();
+    const g = groups.find((x) => x.listings.some((y) => y.listingId === l.id))!;
+    expect(g).toMatchObject({ accountId: accountA });
+    expect(g.listings.find((y) => y.listingId === l.id)!.reason).toBe("gleicher Titel");
+    expect((await request(app).get("/api/duplicates")).body.length).toBe(groups.length);
+    const events: unknown[] = [];
+    const listener = (e: { type: string }) => { if (e.type === "duplicate") events.push(e); };
+    eventBus.on("event", listener);
+    await watchDuplicates();
+    await watchDuplicates(); // second run: no new warning
+    eventBus.off("event", listener);
+    expect(events.filter((e) => (e as { titles: string[] }).titles.includes(first.title))).toHaveLength(1);
+    await db.run("UPDATE listings SET status = 'removed' WHERE id = ?", [l.id]);
+  });
+
   it("analyses only listings that really are in the Vinted shop", async () => {
     // Marked as uploaded without a link: one matches a shop item by title, one doesn't exist on Vinted.
     // (Earlier tests sold a random listing, so take one that is still active.)

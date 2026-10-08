@@ -6,6 +6,7 @@ import { CLOUD } from "@/lib/mode";
 import { AssistBanner } from "./AssistBanner";
 import { Nav } from "./Nav";
 import { RepriceBanner } from "./RepriceBanner";
+import { DuplicateBanner } from "./DuplicateBanner";
 import { SaleNotifier } from "./SaleNotifier";
 
 /** Pages without the dashboard shell (cloud: public pages, Clerk; local: password login). */
@@ -46,7 +47,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <>
       <div className="shell">
         <Nav locked={state === "unpaid"} />
-        <main className="main">{state === "in" && <><AssistBanner /><RepriceBanner /></>}{children}</main>
+        <main className="main">{state === "in" && <><AssistBanner /><RepriceBanner /><DuplicateBanner /></>}{children}</main>
       </div>
       {state === "in" && <SaleNotifier />}
     </>

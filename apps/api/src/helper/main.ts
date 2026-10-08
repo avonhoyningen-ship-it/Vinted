@@ -77,6 +77,7 @@ async function main() {
   const { createHelper } = await import("./runtime.js");
   const { changePriceInChrome } = await import("../modules/reprice/chromePrice.js");
   const { sendInChrome } = await import("../modules/outreach/chromeOutreach.js");
+  const { deleteInChrome } = await import("../modules/reupload/chromeDelete.js");
 
   const readAll = (): Record<string, string> => (fs.existsSync(LOGINS) ? JSON.parse(fs.readFileSync(LOGINS, "utf8")) : {});
   const logins: LoginStore = {
@@ -121,6 +122,7 @@ async function main() {
     },
     changePrice: changePriceInChrome,
     sendMessage: sendInChrome,
+    deleteListing: deleteInChrome,
     assistant: {
       setSource: assistant.setAssistSource,
       start: assistant.startAssist,
