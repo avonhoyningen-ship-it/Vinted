@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import { Router } from "express";
 import { z } from "zod";
 import { env } from "../../config/env.js";
@@ -16,6 +17,20 @@ export const systemRouter = Router();
 
 systemRouter.get("/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+/** Local dashboard: addresses to open it from another laptop/phone in the same network. */
+systemRouter.get("/network", (_req, res) => {
+  const addresses = Object.values(os.networkInterfaces()).flat()
+    .filter((a) => a && a.family === "IPv4" && !a.internal && !a.address.startsWith("169.254."))
+    .map((a) => a!.address);
+  // Tailscale gives every device an address in 100.64.0.0/10 – reachable from anywhere.
+  const tailscale = (a: string) => { const [x, y] = a.split(".").map(Number); return x === 100 && y! >= 64 && y! < 128; };
+  res.json({
+    local: env.appMode === "local", passwordSet: !!env.dashboardPassword,
+    urls: addresses.filter((a) => !tailscale(a)).map((a) => `http://${a}:3000`),
+    remoteUrls: addresses.filter(tailscale).map((a) => `http://${a}:3000`),
+  });
 });
 
 systemRouter.get("/info", (_req, res) => {

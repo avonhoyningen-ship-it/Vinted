@@ -13,9 +13,13 @@ const apiInternal = (process.env.API_INTERNAL_URL || "http://127.0.0.1:4000").re
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  output: "standalone",
+  // Docker/servers use the standalone build; the local launcher (scripts/web.mjs) runs "next start".
+  output: process.env.ASK_LOCAL_BUILD ? undefined : "standalone",
   compress: false, // keeps the proxied SSE stream (/api/events/stream) unbuffered
   turbopack: { root: path.resolve(__dirname, "../..") },
+  // Opening the dashboard from another device (WLAN IP, Tailscale IP/name): allow the dev server's
+  // own assets for those hosts. Access is protected by DASHBOARD_PASSWORD (without it: this PC only).
+  allowedDevOrigins: ["127.0.0.1", "*", "10.*.*.*", "172.*.*.*", "192.168.*.*", "100.*.*.*", "**.ts.net"],
   outputFileTracingRoot: path.resolve(__dirname, "../.."),
   // Photo uploads (up to 20 × 25 MB) pass through the /api rewrite.
   // AI requests (sorting a folder of photos) can take minutes; the default proxy timeout is 30 s.

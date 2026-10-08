@@ -33,6 +33,7 @@ export default function SettingsPage() {
   return (
     <>
       <PageHead title="Einstellungen" />
+      <RemoteAccessCard />
       <div className="grid grid-2">
         <div className="card stack">
           <h2>Sale-Sound & Benachrichtigungen</h2>
@@ -137,6 +138,30 @@ function RulesEditor({ title, help, value, onSave }: { title: string; help: Reac
       <textarea rows={5} value={text} onChange={(e) => setText(e.target.value)} style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }} />
       <div className="row"><div className="spacer" />
         <button className="btn primary" disabled={text === value} onClick={() => onSave(text)}>Speichern</button></div>
+    </div>
+  );
+}
+
+/** Local dashboard: how to open it from another laptop or the phone. */
+function RemoteAccessCard() {
+  const net = useApi<{ local: boolean; passwordSet: boolean; urls: string[]; remoteUrls: string[] }>("/network");
+  if (!net.data?.local) return null;
+  return (
+    <div className="card stack" style={{ marginBottom: 16 }}>
+      <h2>💻 Von anderem Laptop / Handy öffnen</h2>
+      {net.data.passwordSet ? (
+        <>
+          <div className="small"><b>Von überall</b> (anderer Wohnort, unterwegs) – Tailscale auf beiden Geräten mit demselben Konto:</div>
+          {net.data.remoteUrls.length
+            ? net.data.remoteUrls.map((u) => <code key={u} style={{ fontSize: 16 }}>{u}</code>)
+            : <div className="small muted">Tailscale ist auf diesem PC noch nicht aktiv – „Zugriff von anderem Geraet.bat“ starten, sie führt dich durch.</div>}
+          <div className="small"><b>Im gleichen WLAN:</b></div>
+          {net.data.urls.map((u) => <code key={u} style={{ fontSize: 16 }}>{u}</code>)}
+          <div className="small muted">Login mit deinem Dashboard-Passwort. Dieser PC muss an sein und das Dashboard laufen. Der Vinted-Chrome läuft weiter auf diesem PC.</div>
+        </>
+      ) : (
+        <div className="alert small">Ohne Passwort ist das Dashboard nur auf diesem PC erreichbar. Starte „Zugriff von anderem Geraet.bat“ – dort legst du ein Passwort fest und gibst den Zugriff frei.</div>
+      )}
     </div>
   );
 }
