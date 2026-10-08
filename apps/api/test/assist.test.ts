@@ -127,6 +127,17 @@ beforeAll(async () => {
       if (own[1]!.startsWith("81")) return res.end("<html><body>Dieser Artikel ist nicht mehr verfügbar</body></html>");
       res.statusCode = 404; return res.end("<html><body>Seite nicht gefunden</body></html>");
     }
+    if (own && own[1] === "8222") {
+      // Browser popup "Wirklich löschen?" (window.confirm)
+      return res.end(`<!doctype html><html><body>Artikel online <button>Bearbeiten</button>
+        <button onclick="if (confirm('Möchtest du diesen Artikel wirklich löschen?')) fetch('/delete?id=8222')">Löschen</button></body></html>`);
+    }
+    if (own && own[1] === "8333") {
+      // Plain overlay, confirm is a div with role=button and other wording
+      return res.end(`<!doctype html><html><body>Artikel online <a href="/items/8333/edit">Bearbeiten</a> <button onclick="document.getElementById('o').hidden=false">Löschen</button>
+        <div id="o" hidden><p>Möchtest du diesen Artikel wirklich löschen?</p><div role="button" onclick="this.parentNode.hidden=true">Abbrechen</div>
+        <div role="button" onclick="fetch('/delete?id=8333')">Ja, entfernen</div></div></body></html>`);
+    }
     if (own && own[1]!.startsWith("81")) {
       // Vinted-like dialog: no role, class "web_ui__Dialog", and its confirm button is also called "Löschen".
       return res.end(`<!doctype html><html><body>Artikel online <button>Bearbeiten</button> <button onclick="document.getElementById('d').style.display='block'">Löschen</button>
@@ -521,6 +532,9 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     const r = await deleteInChrome({ vintedItemId: "8111", domain: "vinted.de" });
     expect(r).toEqual({ ok: true, message: "Auf Vinted gelöscht" });
     expect(deleted.has("8111")).toBe(true);
+    // Browser popup and an overlay with other wording ("Ja, entfernen").
+    expect(await deleteInChrome({ vintedItemId: "8222", domain: "vinted.de" })).toEqual({ ok: true, message: "Auf Vinted gelöscht" });
+    expect(await deleteInChrome({ vintedItemId: "8333", domain: "vinted.de" })).toEqual({ ok: true, message: "Auf Vinted gelöscht" });
     // Already gone → fine as well (e.g. when retrying a re-upload).
     expect((await deleteInChrome({ vintedItemId: "8111", domain: "vinted.de" })).ok).toBe(true);
   }, 90_000);

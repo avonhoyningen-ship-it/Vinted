@@ -14,7 +14,6 @@ export interface DeleteResult { ok: boolean; message: string }
 
 const LOGIN = /\/(member\/(login|signup)|signup|login)/;
 const DELETE = /^\s*(artikel )?löschen\s*$|^\s*delete( item)?\s*$|^\s*supprimer\s*$/i;
-const CONFIRM = /^\s*(ja,? )?(artikel )?löschen\s*$|^\s*(bestätigen|ok|ja|delete|confirm|yes)\s*$/i;
 
 /** Item page gone: 404/410, or Vinted sends us elsewhere, or the owner buttons are no longer there. */
 async function isGone(page: Page, itemUrl: string, id: string): Promise<boolean> {
@@ -50,23 +49,47 @@ async function findDelete(page: Page): Promise<Locator | null> {
   return firstVisible([page.getByRole("button", { name: DELETE }), page.getByRole("menuitem", { name: DELETE }), page.getByText(DELETE)], 4000);
 }
 
-/** The confirm button of Vinted's "Wirklich löschen?" dialog – any visible matching button except the one we clicked. */
-async function findConfirm(page: Page, clicked: Locator): Promise<Locator | null> {
-  const clickedBox = await clicked.boundingBox().catch(() => null);
-  const scopes = ['[role="dialog"]', '[aria-modal="true"]', '[class*="modal" i]', '[class*="dialog" i]', '[data-testid*="modal" i]', "body"];
-  const until = Date.now() + 8000;
+const CLICKABLE = 'button, [role="button"], a, [role="menuitem"], input[type="submit"], input[type="button"]';
+
+/** Keys of the clickable things on the page right now (text + position) – to see what the click added. */
+async function clickableKeys(page: Page): Promise<string[]> {
+  return page.evaluate((sel) => Array.from(document.querySelectorAll<HTMLElement>(sel)).map((e) => {
+    const r = e.getBoundingClientRect();
+    return `${(e.innerText || (e as HTMLInputElement).value || "").trim()}|${Math.round(r.x)}|${Math.round(r.y)}`;
+  }), CLICKABLE);
+}
+
+/**
+ * The confirm button of Vinted's "Wirklich löschen?" question: a button that appeared after the
+ * click (or sits in a dialog), says "Löschen / Entfernen / Bestätigen / Ja / OK …" and not "Abbrechen".
+ * Marks it with data-ask-confirm and returns it.
+ */
+async function findConfirm(page: Page, before: string[]): Promise<Locator | null> {
+  const until = Date.now() + 10_000;
   while (Date.now() < until) {
-    for (const scope of scopes) {
-      const buttons = page.locator(scope).getByRole("button", { name: CONFIRM });
-      const n = await buttons.count().catch(() => 0);
-      for (let i = n - 1; i >= 0; i--) {
-        const b = buttons.nth(i);
-        if (!(await b.isVisible().catch(() => false))) continue;
-        const box = await b.boundingBox().catch(() => null);
-        const same = clickedBox && box && Math.abs(box.x - clickedBox.x) < 2 && Math.abs(box.y - clickedBox.y) < 2;
-        if (!same) return b;
+    const found = await page.evaluate(({ sel, before }) => {
+      const pos = /lösch|entfern|bestätig|^ja\b|^ok$|delete|remove|confirm|^weiter$|^fortfahren$/i;
+      const neg = /abbrech|cancel|zurück|schließ|nein|behalten|close|back/i;
+      const old = new Set(before);
+      let best: HTMLElement | null = null;
+      let bestScore = 0;
+      for (const e of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
+        e.removeAttribute("data-ask-confirm");
+        if (e.hasAttribute("data-ask-clicked")) continue;
+        const r = e.getBoundingClientRect();
+        const style = getComputedStyle(e);
+        if (!r.width || !r.height || style.visibility === "hidden" || style.display === "none") continue;
+        const text = (e.innerText || (e as HTMLInputElement).value || e.getAttribute("aria-label") || "").trim();
+        if (!text || text.length > 40 || !pos.test(text) || neg.test(text)) continue;
+        const isNew = !old.has(`${text}|${Math.round(r.x)}|${Math.round(r.y)}`);
+        const inDialog = !!e.closest('[role="dialog"], [role="alertdialog"], [aria-modal="true"], [class*="modal" i], [class*="dialog" i], [class*="overlay" i]');
+        const score = (isNew ? 2 : 0) + (inDialog ? 2 : 0) + (/lösch|delete/i.test(text) ? 1 : 0);
+        if (score >= 2 && score > bestScore) { best = e; bestScore = score; }
       }
-    }
+      if (best) best.setAttribute("data-ask-confirm", "1");
+      return !!best;
+    }, { sel: CLICKABLE, before });
+    if (found) return page.locator("[data-ask-confirm]").first();
     await page.waitForTimeout(400);
   }
   return null;
@@ -88,6 +111,8 @@ export async function deleteInChrome(job: DeleteJob): Promise<DeleteResult> {
   const browser = await connect(job.chromeUrl ?? undefined);
   const context = browser.contexts()[0] ?? (await browser.newContext());
   const page = await context.newPage();
+  // A browser popup "Wirklich löschen? OK / Abbrechen" is answered with OK.
+  page.on("dialog", (d) => { void d.accept().catch(() => {}); });
   const base = env.vintedBaseUrl ?? `https://www.${job.domain}`;
   const id = job.vintedItemId;
   const itemUrl = `${base}/items/${id}`;
@@ -107,13 +132,15 @@ export async function deleteInChrome(job: DeleteJob): Promise<DeleteResult> {
       return fail("Knopf „Löschen“ nicht gefunden – gehört der Artikel zum eingeloggten Account?");
     }
     await del.scrollIntoViewIfNeeded().catch(() => {});
+    await del.evaluate((e) => e.setAttribute("data-ask-clicked", "1")).catch(() => {});
+    const before = await clickableKeys(page);
     await del.click();
     await page.waitForTimeout(1200);
 
-    // Vinted asks again ("Artikel löschen?"), sometimes with a reason to pick first.
+    // Vinted asks again ("Möchtest du den Artikel wirklich löschen?"), sometimes with a reason to pick first.
     const radio = page.locator('[role="dialog"] input[type="radio"], [aria-modal="true"] input[type="radio"]').first();
     if (await radio.isVisible().catch(() => false)) await radio.check({ force: true }).catch(() => {});
-    const confirm = await findConfirm(page, del);
+    const confirm = await findConfirm(page, before);
     if (confirm) {
       await confirm.click().catch(() => {});
       await page.waitForTimeout(1500);
