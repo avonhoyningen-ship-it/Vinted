@@ -15,6 +15,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Docker/servers use the standalone build; the local launcher (scripts/web.mjs) runs "next start".
   output: process.env.ASK_LOCAL_BUILD ? undefined : "standalone",
+  // Local launcher build: skip the type check (done during development/CI) – saves a minute on slow laptops.
+  typescript: { ignoreBuildErrors: !!process.env.ASK_LOCAL_BUILD },
   compress: false, // keeps the proxied SSE stream (/api/events/stream) unbuffered
   turbopack: { root: path.resolve(__dirname, "../..") },
   // Opening the dashboard from another device (WLAN IP, Tailscale IP/name): allow the dev server's
