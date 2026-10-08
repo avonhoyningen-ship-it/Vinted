@@ -28,7 +28,7 @@ export async function assistData(itemId: number, accountId: number): Promise<Omi
     color: item.color,
     width,
     length,
-    parcel: ruleParcel(item, rules.parcel) ?? parcelSize(item.parcel_size),
+    parcel: ruleParcel(item, rules.parcel) ?? parcelSize(item.parcel_size) ?? "Mittel",
     photos: (await listPhotos(item.id)).slice(0, 20).map((p) => p.file_name),
     domain: account.domain,
     chromeUrl: chromeUrlFor(account),

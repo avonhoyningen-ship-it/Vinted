@@ -38,7 +38,10 @@ const SELL_PAGE = `<!doctype html><html><body>
   <button id="upload" onclick="location.href='/items/' + (5550000 + t.value.length) + '-item'">Hochladen</button>
   <script>
     const trees = {
-      cat: { "Damen": { "Kleidung": ["Kleider"] }, "Herren": { "Kleidung": { "T-Shirts": ["Einfarbige T-Shirts", "Bedruckte T-Shirts"] } } },
+      cat: { "Damen": { "Kleidung": ["Kleider"] }, "Herren": { "Kleidung": {
+        "T-Shirts": ["Einfarbige T-Shirts", "Bedruckte T-Shirts"],
+        "Pullover & Sweater": ["Kapuzenpullover", "Sweatshirts", "Strickpullover"],
+        "Jacken & Mäntel": { "Jacken": ["Steppjacken", "Jeansjacken"], "Westen": ["Daunenwesten", "Fleecewesten"] } } } },
       brand: ["Nike", "Graphic Tee", "Hysteric Glamour"], size: ["S / 36", "M / 38", "L / 40"],
       cond: ["Neu mit Etikett", "Sehr gut", "Gut"], color: ["Schwarz", "Weiß"], mat: ["Polyester", "Baumwolle"],
     };
@@ -538,4 +541,31 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     // Already gone → fine as well (e.g. when retrying a re-upload).
     expect((await deleteInChrome({ vintedItemId: "8111", domain: "vinted.de" })).ok).toBe(true);
   }, 90_000);
+
+  it("finds Vinted's category even when the AI words it differently; parcel never 'Groß'", async () => {
+    const { db } = await import("../src/db/index.js");
+    const acc = await db.insert("INSERT INTO accounts (name, domain, status) VALUES ('Kategorie-Test', 'vinted.de', 'connected')");
+    const jpg = (c: string) => sharp({ create: { width: 40, height: 50, channels: 3, background: c } }).jpeg().toBuffer();
+    const make = async (data: object, c: string) => (await request(app).post("/api/listings/drafts").attach("photos", await jpg(c), "1.jpg").field("data", JSON.stringify(data))).body.item;
+    const hoodie = await make({ title: "Hollister Zip Hoodie Navy", price_cents: 3600, category: "Männer > Kleidung > Pullover > Hoodies", parcel_size: "Groß" }, "#124");
+    const vest = await make({ title: "Superdry Gilet Weste Navy", price_cents: 4000, category: "Herren > Kleidung > Jacken > Westen > Daunenweste", parcel_size: "Groß" }, "#241");
+
+    expect((await request(app).post("/api/assist/start").send({ itemIds: [hoodie.id, vest.id], accountId: acc })).status).toBe(200);
+    const ready = await waitFor(async () => {
+      const s = (await request(app).get("/api/assist/status")).body;
+      return s.state === "waiting" && s.tabs.filter((t: { itemId: number }) => [hoodie.id, vest.id].includes(t.itemId)).every((t: { state: string }) => t.state === "ready") && s;
+    }, 90_000);
+    const tab = (id: number) => ready.tabs.find((t: { itemId: number }) => t.itemId === id);
+    expect(tab(hoodie.id).filled).toContain("Kategorie");
+    expect(tab(vest.id).filled).toContain("Kategorie");
+    expect(tab(hoodie.id).filled).toContain("Paketgröße Mittel");
+    expect(tab(vest.id).filled).toContain("Paketgröße Mittel");
+
+    const b = await chromium.connectOverCDP(process.env.CHROME_DEBUG_URL!);
+    const pages = b.contexts()[0]!.pages().filter((p) => p.url().includes("/items/new"));
+    const cats = await Promise.all(pages.map((p) => p.locator("#cat").inputValue()));
+    expect(cats).toEqual(expect.arrayContaining(["Kapuzenpullover", "Daunenwesten"]));
+    await b.close();
+    await request(app).post("/api/assist/stop");
+  }, 150_000);
 });

@@ -213,12 +213,79 @@ async function findOption(page: Page | Locator, text: string, prefix = false): P
   return null;
 }
 
+// ---------- tolerant matching for categories ("Pullover > Hoodies" ≈ "Pullover & Sweater > Kapuzenpullover") ----------
+
+const SAME_WORDS: string[][] = [
+  ["herren", "maenner", "mann", "men", "male"], ["damen", "frauen", "frau", "women", "female"], ["kinder", "kids"],
+  ["kleidung", "bekleidung", "clothing"], ["kapuzenpullover", "hoodie", "kapuzenpulli", "kapuze", "kapuzen", "zip"],
+  ["pullover", "pulli", "sweater", "strickpullover", "pullov"], ["sweatshirt", "sweat", "sweatshirts"],
+  ["tshirt", "shirt", "tee", "tees", "tshirts"], ["oberteil", "top", "tops", "oberteile"],
+  ["jacke", "jacket", "jacken", "jack"], ["weste", "westen", "gilet", "bodywarmer", "puffer"], ["mantel", "maentel", "coat"],
+  ["hose", "hosen", "pants"], ["jeans"], ["bedruckt", "print", "grafik", "graphic", "bedruckte"],
+];
+const fold = (t: string) => t.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/t-shirt/g, "tshirt");
+function canonWords(t: string): Set<string> {
+  const out = new Set<string>();
+  for (let w of fold(t).split(/[^a-z0-9]+/).filter((x) => x.length > 1 && !["und", "and", "mit", "the"].includes(x))) {
+    const group = SAME_WORDS.findIndex((g) => g.includes(w) || g.some((x) => x.length > 4 && w.startsWith(x)));
+    if (group >= 0) { out.add(`#${group}`); continue; }
+    if (w.length > 5) w = w.replace(/(en|er|e|n|s)$/, "");
+    out.add(w);
+  }
+  return out;
+}
+/** 1 = same, 0 = nothing in common. */
+export function labelSimilarity(a: string, b: string): number {
+  const fa = fold(a).trim();
+  const fb = fold(b).trim();
+  if (fa === fb) return 1;
+  const A = canonWords(a);
+  const B = canonWords(b);
+  if (!A.size || !B.size) return 0;
+  const common = [...A].filter((x) => B.has(x)).length;
+  let score = common / new Set([...A, ...B]).size;
+  if (common && (fa.includes(fb) || fb.includes(fa))) score = Math.max(score, 0.7);
+  if (common === Math.min(A.size, B.size)) score = Math.max(score, 0.6); // all words of the shorter one are in the other
+  return score;
+}
+
+/** Is the opened list still showing options (elements that appeared after opening)? */
+async function listOpen(page: Page): Promise<boolean> {
+  return page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('li, [role="option"], [role="radio"]'))
+    .some((e) => !e.hasAttribute("data-ask-old") && e.getBoundingClientRect().height > 0)).catch(() => false);
+}
+
+/** The option in the opened list (only elements that appeared after opening) that matches `text` best. */
+async function findBestOption(page: Page, text: string): Promise<Locator | null> {
+  const texts = await page.evaluate(() => {
+    const out: string[] = [];
+    document.querySelectorAll("[data-ask-cand]").forEach((e) => e.removeAttribute("data-ask-cand"));
+    for (const e of Array.from(document.querySelectorAll<HTMLElement>('li, [role="option"], [role="button"], [role="radio"], button, label'))) {
+      if (e.hasAttribute("data-ask-old")) continue;
+      const r = e.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      const t = (e.innerText || "").trim().split("\n")[0]!.trim();
+      if (!t || t.length > 60) continue;
+      e.setAttribute("data-ask-cand", String(out.length));
+      out.push(t);
+    }
+    return out;
+  }).catch(() => [] as string[]);
+  let best = -1;
+  let bestScore = 0.5;
+  texts.forEach((t, i) => {
+    const sc = labelSimilarity(text, t);
+    if (sc > bestScore) { best = i; bestScore = sc; }
+  });
+  return best >= 0 ? page.locator(`[data-ask-cand="${best}"]`).first() : null;
+}
+
 /**
  * Opens a dropdown row and clicks through `path` (e.g. category levels). If an
  * option isn't visible, types it into the focused search field first.
  * Leaves values alone that Vinted already filled correctly.
  */
-async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = false): Promise<boolean> {
+async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = false, fuzzy = false): Promise<boolean> {
   const row = fieldRow(page, label);
   if (!(await row.count().catch(() => 0))) return false;
   const input = row.locator("input").first();
@@ -228,9 +295,13 @@ async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = 
 
   // Mark every input that exists before opening, so only the dropdown's own search box is used –
   // never Vinted's site search in the header.
-  await page.evaluate(() => document.querySelectorAll("input, textarea").forEach((e) => {
-    if ((e as HTMLElement).getClientRects().length) e.setAttribute("data-ask-pre", "");
-  })).catch(() => {});
+  await page.evaluate(() => {
+    document.querySelectorAll("input, textarea").forEach((e) => {
+      if ((e as HTMLElement).getClientRects().length) e.setAttribute("data-ask-pre", "");
+    });
+    // Everything clickable that is there before opening is not an option of this list.
+    document.querySelectorAll('li, [role="option"], [role="button"], [role="radio"], button, label').forEach((e) => e.setAttribute("data-ask-old", ""));
+  }).catch(() => {});
   await input.click({ timeout: 5000 });
   await page.waitForTimeout(700);
   for (const seg of path) {
@@ -248,15 +319,19 @@ async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = 
         option = await findOption(page, seg, prefix);
       }
     }
+    if (!option && fuzzy) option = await findBestOption(page, seg); // Vinted's wording differs a little
     if (!option) {
       await page.keyboard.press("Escape").catch(() => {});
       return false;
     }
     await option.click();
     await page.waitForTimeout(700);
+    // A leaf was chosen and Vinted closed the list early (path deeper than Vinted's tree) → done.
+    if (fuzzy && (await input.inputValue().catch(() => "")).trim() && !(await listOpen(page))) break;
   }
   await page.keyboard.press("Escape").catch(() => {});
   const value = (await input.inputValue().catch(() => "")).trim().toLowerCase();
+  if (fuzzy) return !!value && (value !== current || labelSimilarity(value, target) >= 0.5);
   return value.includes(target) || (prefix && value.startsWith(target));
 }
 
@@ -264,8 +339,8 @@ async function pickDropdown(page: Page, label: RegExp, path: string[], prefix = 
 async function pickCategory(page: Page, category: string): Promise<boolean> {
   const path = category.split(">").map((x) => x.trim()).filter(Boolean);
   if (!path.length) return false;
-  if (await pickDropdown(page, /^kategorie$/i, path)) return true;
-  return path.length > 1 && pickDropdown(page, /^kategorie$/i, [path[path.length - 1]!]);
+  if (await pickDropdown(page, /^kategorie$/i, path, false, true)) return true;
+  return path.length > 1 && pickDropdown(page, /^kategorie$/i, [path[path.length - 1]!], false, true);
 }
 
 const PARCEL_SIZES: ParcelSize[] = ["Klein", "Mittel", "Groß"];

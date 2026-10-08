@@ -88,7 +88,9 @@ describe("brand rules and measurements", async () => {
     expect(ruleParcel({ title: "Sakura Tee weiß", category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" }, rules)).toBe("Klein");
     expect(ruleParcel({ title: "Vintage Hoodie", category: null }, rules)).toBe("Mittel");
     expect(ruleParcel({ title: "Nike Sweatshirt grau", category: null }, rules)).toBe("Mittel");
-    expect(ruleParcel({ title: "Levi's Jeans", category: "Hosen" }, rules)).toBeNull();
+    expect(ruleParcel({ title: "Levi's Jeans", category: "Hosen" }, rules)).toBe("Mittel");
+    expect(ruleParcel({ title: "Superdry Puffer Weste", category: null }, rules)).toBe("Mittel");
+    expect(ruleParcel({ title: "Schmuck Kette", category: "Accessoires" }, rules)).toBeNull();
   });
   it("reads measurements", () => {
     expect(parseMeasurements("Breite 43 Länge 65")).toEqual({ width: 43, length: 65 });
@@ -178,7 +180,7 @@ describe("AI sales kit parsing", () => {
       suggested_price_eur: 20, price_reasoning: "", rotations: [], photo_order: [1], confidence_notes: "",
     };
     expect(parseSuggestion({ ...base, condition: "Sehr gut", parcel_size: "klein (Umschlag)" })).toMatchObject({ condition: "very_good", parcel_size: "Klein" });
-    expect(parseSuggestion({ ...base, condition: "new_with_tags", parcel_size: "Groß" })).toMatchObject({ condition: "new_with_tags", parcel_size: "Groß" });
+    expect(parseSuggestion({ ...base, condition: "new_with_tags", parcel_size: "Groß" })).toMatchObject({ condition: "new_with_tags", parcel_size: "Mittel" });
     expect(parseSuggestion({ ...base, condition: null, parcel_size: null })).toMatchObject({ condition: "very_good", parcel_size: "Mittel" });
   });
 });
@@ -193,5 +195,22 @@ describe("duplicate photos", () => {
     const other = await sharp(svg("#123", '<rect x="20" y="300" width="360" height="120" fill="C"/>')).jpeg().toBuffer();
     expect(hammingDistance(await photoHash(shirt), await photoHash(smaller))).toBeLessThanOrEqual(6);
     expect(hammingDistance(await photoHash(shirt), await photoHash(other))).toBeGreaterThan(6);
+  });
+});
+
+describe("category wording", () => {
+  it("matches Vinted's labels tolerantly", async () => {
+    const { labelSimilarity } = await import("../src/modules/assist/assistant.js");
+    expect(labelSimilarity("Männer", "Herren")).toBeGreaterThan(0.5);
+    expect(labelSimilarity("Pullover", "Pullover & Sweater")).toBeGreaterThan(0.5);
+    expect(labelSimilarity("Hoodies", "Kapuzenpullover")).toBeGreaterThan(0.5);
+    expect(labelSimilarity("Daunenweste", "Daunenwesten")).toBeGreaterThan(0.5);
+    expect(labelSimilarity("Hoodies", "Sweatshirts")).toBeLessThanOrEqual(0.5);
+    expect(labelSimilarity("T-Shirts", "Kleider")).toBe(0);
+  });
+  it("never ships as 'Groß'", async () => {
+    const { parcelSize } = await import("../src/modules/listings/brandRules.js");
+    expect(parcelSize("Groß")).toBe("Mittel");
+    expect(parcelSize("klein")).toBe("Klein");
   });
 });

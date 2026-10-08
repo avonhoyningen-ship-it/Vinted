@@ -48,7 +48,8 @@ export function parcelSize(v: string | null | undefined): ParcelSize | null {
   const word = "(?![a-zäöüß])";
   if (new RegExp(`^(klein|s|small)${word}`).test(t)) return "Klein";
   if (new RegExp(`^(mittel|m|medium)${word}`).test(t)) return "Mittel";
-  if (new RegExp(`^(gro(ß|ss)|l|large)${word}`).test(t)) return "Groß";
+  // "Groß" is never used: everything that isn't small (T-shirts) ships as "Mittel" – also thick pullovers and jackets.
+  if (new RegExp(`^(gro(ß|ss)|l|large)${word}`).test(t)) return "Mittel";
   return null;
 }
 
@@ -65,7 +66,7 @@ export async function applyBrandRules(): Promise<number> {
   let changed = 0;
   for (const it of items) {
     const brand = ruleBrand(it, rules.brand) ?? it.brand;
-    const parcel = ruleParcel(it, rules.parcel) ?? it.parcel_size;
+    const parcel = ruleParcel(it, rules.parcel) ?? parcelSize(it.parcel_size) ?? it.parcel_size;
     if (brand !== it.brand || parcel !== it.parcel_size) {
       await db.run("UPDATE items SET brand = ?, parcel_size = ?, updated_at = ? WHERE id = ?", [brand, parcel, nowIso(), it.id]);
       changed++;

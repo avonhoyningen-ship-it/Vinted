@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS = {
   /** Brand rules, one per line: "<words in title/category/hashtags>=<brand>", e.g. "T-Shirt, Tee=Graphic Tee". */
   "brand.rules": "T-Shirt, Tee, Shirt=Graphic Tee",
   /** Parcel size rules, first match wins: "<words>=Klein|Mittel|Groß". */
-  "parcel.rules": "Pullover, Hoodie, Kapuzenpullover, Sweatshirt, Sweater, Strickpullover=Mittel\nT-Shirt, Tee, Shirt=Klein",
+  "parcel.rules": "Pullover, Hoodie, Kapuzenpullover, Sweatshirt, Sweater, Strickpullover, Jacke, Weste, Mantel, Fleece, Hose, Jeans=Mittel\nT-Shirt, Tee, Shirt, Top, Tanktop=Klein",
 };
 export type SettingKey = keyof typeof DEFAULT_SETTINGS;
 
