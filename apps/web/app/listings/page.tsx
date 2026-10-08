@@ -11,7 +11,7 @@ import { PriceCell } from "@/components/PriceCell";
 import { PricingTab } from "@/components/PricingTab";
 import { Dropzone } from "@/components/PhotoManager";
 import { useToast } from "@/components/Toasts";
-import { Empty, ErrorBox, PageHead, StatusBadge, Thumb } from "@/components/ui";
+import { Empty, ErrorBox, Modal, PageHead, StatusBadge, Thumb } from "@/components/ui";
 import { api, dateTime, euro, parseEuro, photoUrl } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { Item, Listing, QueueEntry, Template } from "@/lib/types";
@@ -303,19 +303,85 @@ function QueueTab() {
 
 // ---------- active ----------
 
+interface ReuploadStatus {
+  state: "idle" | "running" | "done"; total: number; done: number; message: string | null;
+  items: { listingId: number; title: string; priceCents: number | null; state: "queued" | "deleting" | "deleted" | "failed" | "skipped"; message: string | null }[];
+}
+const REUPLOAD_LABEL = { queued: "wartet", deleting: "lösche…", deleted: "✓ gelöscht", failed: "✗ fehlgeschlagen", skipped: "übersprungen" } as const;
+
 function ActiveTab() {
-  const { data, error } = useApi<Listing[]>("/listings");
+  const toast = useToast();
+  const { data, error, reload } = useApi<Listing[]>("/listings");
+  const [selected, setSelected] = useState<number[]>([]);
+  const [confirm, setConfirm] = useState(false);
+  const [status, setStatus] = useState<ReuploadStatus | null>(null);
+  const running = status?.state === "running";
+
+  // Live progress while deleting.
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      const s = await api<ReuploadStatus>("/reupload/status").catch(() => null);
+      if (stop || !s) return;
+      setStatus(s);
+      if (s.state === "running") setTimeout(tick, 1500);
+      else if (s.state === "done") void reload();
+    };
+    void tick();
+    return () => { stop = true; };
+  }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reuploadable = data?.filter((l) => l.vinted_item_id) ?? [];
+  const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const chosen = data?.filter((l) => selected.includes(l.id)) ?? [];
+
+  async function start() {
+    try {
+      setStatus(await api<ReuploadStatus>("/reupload", { method: "POST", json: { listingIds: selected } }));
+      setConfirm(false);
+      setSelected([]);
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    }
+  }
+
   return (
     <div className="stack">
       <ErrorBox error={error} />
+      {status && status.state !== "idle" && (
+        <div className="card stack" style={{ gap: 6 }}>
+          <div className="row">
+            <strong>{running ? `♻️ Lösche auf Vinted… ${status.done} von ${status.total}` : `♻️ ${status.message}`}</strong>
+            <div className="spacer" />
+            {running && <button className="btn small danger" onClick={() => api<ReuploadStatus>("/reupload/stop", { method: "POST" }).then(setStatus)}>Stoppen</button>}
+          </div>
+          {status.items.map((i) => (
+            <div key={i.listingId} className="small row" style={{ gap: 8 }}>
+              <span style={{ width: 120, color: i.state === "deleted" ? "var(--good)" : i.state === "failed" ? "var(--bad)" : "var(--muted)" }}>{REUPLOAD_LABEL[i.state]}</span>
+              <span>{i.title} · {euro(i.priceCents)}{i.message && i.state === "failed" ? ` · ${i.message}` : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!!data?.length && (
+        <div className="row">
+          <span className="muted">{selected.length} ausgewählt</span>
+          <button className="btn small" onClick={() => setSelected(selected.length === reuploadable.length ? [] : reuploadable.map((l) => l.id))}>
+            {selected.length === reuploadable.length && selected.length ? "Keine" : "Alle"}
+          </button>
+          <div className="spacer" />
+          <button className="btn primary" disabled={!selected.length || running} onClick={() => setConfirm(true)}>♻️ Re-Upload ({selected.length})</button>
+        </div>
+      )}
       {data && !data.length && <div className="card"><Empty>Keine aktiven Listings.</Empty></div>}
       {!!data?.length && (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th></th><th>Titel</th><th>Account</th><th className="num">Preis</th><th className="num">❤️</th><th className="num">👁</th><th className="num">Tage online</th><th></th></tr></thead>
+            <thead><tr><th></th><th></th><th>Titel</th><th>Account</th><th className="num">Preis</th><th className="num">❤️</th><th className="num">👁</th><th className="num">Tage online</th><th></th></tr></thead>
             <tbody>
               {data.map((l) => (
                 <tr key={l.id}>
+                  <td><input type="checkbox" disabled={!l.vinted_item_id} checked={selected.includes(l.id)} onChange={() => toggle(l.id)} aria-label="auswählen" /></td>
                   <td style={{ width: 56 }}><Thumb src={photoUrl(l.cover_photo)} /></td>
                   <td><Link href={`/archive/${l.item_id}`}>{l.title}</Link></td>
                   <td>{l.account_name}</td>
@@ -329,6 +395,27 @@ function ActiveTab() {
             </tbody>
           </table>
         </div>
+      )}
+      {confirm && (
+        <Modal title={`♻️ ${chosen.length} Artikel neu hochladen`} onClose={() => setConfirm(false)}>
+          <div className="stack">
+            <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Alle ausgewählten Artikel werden zuerst auf Vinted <strong>gelöscht</strong> (Favoriten und Aufrufe gehen dabei verloren).</li>
+              <li>Danach öffnet der Vinted-Chrome für jeden das Formular neu ausgefüllt – die KI schreibt Titel und Beschreibung frisch, <strong>der Preis bleibt der aktuelle</strong>.</li>
+              <li>Du prüfst kurz und klickst jeweils selbst auf <strong>„Hochladen“</strong>.</li>
+            </ol>
+            <div className="table-wrap" style={{ maxHeight: 260, overflow: "auto" }}>
+              <table>
+                <thead><tr><th>Artikel</th><th className="num">Preis beim neuen Upload</th></tr></thead>
+                <tbody>{chosen.map((l) => <tr key={l.id}><td>{l.title}</td><td className="num">{euro(l.price_cents, l.currency)}</td></tr>)}</tbody>
+              </table>
+            </div>
+            <div className="row"><div className="spacer" />
+              <button className="btn" onClick={() => setConfirm(false)}>Abbrechen</button>
+              <button className="btn primary" onClick={start}>Löschen & neu vorbereiten</button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

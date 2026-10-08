@@ -440,4 +440,32 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     expect(bad.body.error).toMatch(/Löschen/);
     expect((await db.get<{ status: string }>("SELECT status FROM listings WHERE id = ?", [other.id]))!.status).toBe("active");
   }, 90_000);
+
+  it("re-uploads several selected listings: deletes all first, keeps each current price", async () => {
+    const { db } = await import("../src/db/index.js");
+    const acc = (await db.get<{ id: number }>("SELECT id FROM accounts WHERE name = 'Käufer-Shop'"))!;
+    const jpg = (c: string) => sharp({ create: { width: 60, height: 80, channels: 3, background: c } }).jpeg().toBuffer();
+    const mk = async (title: string, vid: string, itemPrice: number, listingPrice: number) => {
+      const d = (await request(app).post("/api/listings/drafts").attach("photos", await jpg(vid === "8081" ? "#a0a" : "#0aa"), "x.jpg").field("data", JSON.stringify({ title, price_cents: itemPrice }))).body.item;
+      const l = (await request(app).post(`/api/archive/${d.id}/listings`).send({ accountId: acc.id, url: `https://www.vinted.de/items/${vid}-x`, priceCents: itemPrice })).body;
+      await db.run("UPDATE listings SET price_cents = ? WHERE id = ?", [listingPrice, l.id]); // e.g. lowered on Vinted since
+      return { item: d.id as number, listing: l.id as number };
+    };
+    const a = await mk("Batch Hoodie", "8081", 3500, 3200);
+    const b = await mk("Batch Jeans", "8082", 2800, 2800);
+
+    const start = await request(app).post("/api/reupload").send({ listingIds: [a.listing, b.listing] });
+    expect(start.status).toBe(200);
+    const done = await waitFor(async () => {
+      const s = (await request(app).get("/api/reupload/status")).body;
+      return s.state === "done" && s;
+    }, 60_000);
+    expect(done.items.map((i: { state: string }) => i.state)).toEqual(["deleted", "deleted"]);
+    expect(deleted.has("8081") && deleted.has("8082")).toBe(true);
+    const item = (await request(app).get(`/api/archive/${a.item}`)).body.item;
+    expect(item).toMatchObject({ price_cents: 3200, price_confirmed: 1 }); // price of the old listing
+    const st = (await request(app).get("/api/assist/status")).body;
+    expect(st.tabs.map((t: { itemId: number }) => t.itemId)).toEqual(expect.arrayContaining([a.item, b.item]));
+    await request(app).post("/api/assist/stop");
+  }, 120_000);
 });
