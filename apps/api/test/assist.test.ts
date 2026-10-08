@@ -239,10 +239,10 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
     const { db } = await import("../src/db/index.js");
     const acc = (await db.insert("INSERT INTO accounts (name, domain, status) VALUES ('Vinted 2', 'vinted.de', 'connected')"));
     const photo = (c: string) => sharp({ create: { width: 40, height: 50, channels: 3, background: c } }).jpeg().toBuffer();
-    const make = async (data: object) => (await request(app).post("/api/listings/drafts")
-      .attach("photos", await photo("#33a"), "1.jpg").field("data", JSON.stringify(data))).body.item;
-    const tee = await make({ title: "Anime Print Tee", price_cents: 2000, size: "M", category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" });
-    const hoodie = await make({ title: "Vintage College Hoodie grau", price_cents: 3500, size: "L" });
+    const make = async (data: object, colour: string) => (await request(app).post("/api/listings/drafts")
+      .attach("photos", await photo(colour), "1.jpg").field("data", JSON.stringify(data))).body.item;
+    const tee = await make({ title: "Anime Print Tee", price_cents: 2000, size: "M", category: "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" }, "#33a");
+    const hoodie = await make({ title: "Vintage College Hoodie grau", price_cents: 3500, size: "L" }, "#999");
 
     expect((await request(app).post("/api/assist/start").send({ itemIds: [tee.id, hoodie.id], accountId: acc })).status).toBe(200);
     const ready = await waitFor(async () => {

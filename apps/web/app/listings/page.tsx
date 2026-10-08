@@ -16,7 +16,7 @@ import { api, dateTime, euro, parseEuro, photoUrl } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import type { Item, Listing, QueueEntry, Template } from "@/lib/types";
 
-const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", later: "Später", uploaded: "Hochgeladen", pricing: "Preise", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
+const TABS = { folder: "Ordner hochladen", new: "Einzelne Fotos", drafts: "Entwürfe", later: "Später", uploaded: "Hochgeladen", sold: "Verkauft", pricing: "Preise", queue: "Warteschlange", active: "Aktive Listings", templates: "Vorlagen" } as const;
 type Tab = keyof typeof TABS;
 
 function ListingsInner() {
@@ -35,6 +35,7 @@ function ListingsInner() {
       {tab === "folder" && <FolderTab onDone={() => setTab("drafts")} />}
       {tab === "new" && <NewTab onDone={() => setTab("drafts")} />}
       {tab === "drafts" && <DraftsTab key="drafts" />}
+      {tab === "sold" && <SoldTab />}
       {tab === "later" && <DraftsTab key="later" later />}
       {tab === "uploaded" && <UploadedTab />}
       {tab === "pricing" && <PricingTab />}
@@ -438,6 +439,52 @@ function ActiveTab() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ---------- sold (to upload again) ----------
+
+interface SoldRow { id: number; title: string; brand: string | null; size: string | null; price_cents: number | null; currency: string; cover_photo: string | null; sold_at: string | null; sold_price_cents: number | null; account_name: string; url: string | null }
+
+function SoldTab() {
+  const { data, error, reload } = useApi<SoldRow[]>("/listings/sold");
+  const [selected, setSelected] = useState<number[]>([]);
+  const [assist, setAssist] = useState(false);
+  const toggle = (id: number) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  return (
+    <div className="stack">
+      <ErrorBox error={error} />
+      {!!data?.length && (
+        <div className="row">
+          <span className="muted">{selected.length} ausgewählt</span>
+          <button className="btn small" onClick={() => setSelected(selected.length === data.length ? [] : data.map((d) => d.id))}>{selected.length === data.length ? "Keine" : "Alle"}</button>
+          <div className="spacer" />
+          <button className="btn primary" disabled={!selected.length} onClick={() => setAssist(true)}>🤖 Erneut hochladen ({selected.length})</button>
+        </div>
+      )}
+      {data && !data.length && <div className="card"><Empty>Noch nichts verkauft.</Empty></div>}
+      {!!data?.length && (
+        <div className="card table-wrap">
+          <table>
+            <thead><tr><th></th><th></th><th>Titel</th><th>Marke / Größe</th><th>Account</th><th className="num">Verkauft für</th><th>Verkauft am</th></tr></thead>
+            <tbody>
+              {data.map((d) => (
+                <tr key={d.id}>
+                  <td><input type="checkbox" checked={selected.includes(d.id)} onChange={() => toggle(d.id)} aria-label="auswählen" /></td>
+                  <td style={{ width: 56 }}><Thumb src={photoUrl(d.cover_photo)} /></td>
+                  <td><Link href={`/archive/${d.id}`}>{d.title}</Link></td>
+                  <td>{[d.brand, d.size].filter(Boolean).join(" · ") || "–"}</td>
+                  <td>{d.account_name}</td>
+                  <td className="num">{euro(d.sold_price_cents ?? d.price_cents, d.currency)}</td>
+                  <td>{d.sold_at ? dateTime(d.sold_at) : "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {assist && <AssistStartDialog itemIds={selected} onClose={() => setAssist(false)} onStarted={() => { setAssist(false); setSelected([]); void reload(); }} />}
     </div>
   );
 }

@@ -212,6 +212,40 @@ describe("end-to-end (mock mode)", () => {
     await db.run("UPDATE listings SET status = 'removed' WHERE id = ?", [l.id]);
   });
 
+  it("keeps one article per garment: same photos are merged, archive only shows uploaded ones, sold has its own list", async () => {
+    const svg = (print: string) => sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#ddd"/>
+      <path d="M80 60 L320 60 L360 160 L300 180 L300 460 L100 460 L100 180 L40 160 Z" fill="#111"/>${print}</svg>`)).jpeg();
+    const teeA = await svg('<circle cx="200" cy="220" r="70" fill="#e33"/><rect x="150" y="320" width="100" height="40" fill="#fff"/>').toBuffer();
+    const teeA2 = await svg('<circle cx="200" cy="220" r="70" fill="#e33"/><rect x="150" y="320" width="100" height="40" fill="#fff"/>').toBuffer();
+    const teeB = await svg('<rect x="120" y="140" width="160" height="60" fill="#3c3"/><circle cx="160" cy="330" r="40" fill="#fff"/><circle cx="250" cy="300" r="30" fill="#39f"/>').toBuffer();
+    const { fingerprint, samePhoto } = await import("../src/modules/duplicates/merge.js");
+    const smaller = await sharp(teeA).resize(200).jpeg({ quality: 45 }).toBuffer();
+    expect(samePhoto(await fingerprint(teeA), await fingerprint(smaller))).toBe(true); // Vinted re-compressed it
+    expect(samePhoto(await fingerprint(teeA), await fingerprint(teeB))).toBe(false); // two black tees, other print
+
+    const up = (buf: Buffer, title: string) => request(app).post("/api/listings/drafts").attach("photos", buf, "1.jpg").field("data", JSON.stringify({ title }));
+    const first = (await up(teeA, "Schwarzes Tee A")).body;
+    const other = (await up(teeB, "Schwarzes Tee B")).body;
+    const again = (await up(teeA2, "Nochmal Tee A")).body;
+    expect(other.mergedInto).toBeNull();
+    expect(again.mergedInto).toBe(first.item.id); // same shirt → no second article
+    const drafts = (await request(app).get("/api/listings/drafts")).body.map((d: { id: number }) => d.id);
+    expect(drafts).toContain(first.item.id);
+    expect(drafts).toContain(other.item.id);
+    expect(drafts.filter((id: number) => id === again.item.id)).toHaveLength(1);
+
+    // Archive: only what was on Vinted.
+    const archived = async () => (await request(app).get("/api/archive").query({ pageSize: 200 })).body.items.map((i: { id: number }) => i.id);
+    expect(await archived()).not.toContain(first.item.id);
+    const l = (await request(app).post(`/api/archive/${first.item.id}/listings`).send({ accountId: accountA, url: "https://www.vinted.de/items/770077-a", priceCents: 1800 })).body;
+    expect(await archived()).toContain(first.item.id);
+
+    // Sold → "Verkauft" list (to upload again later).
+    await request(app).patch(`/api/archive/${first.item.id}/listings/${l.id}`).send({ status: "sold", soldPriceCents: 1700 });
+    const sold = (await request(app).get("/api/listings/sold")).body;
+    expect(sold.find((x: { id: number }) => x.id === first.item.id)).toMatchObject({ sold_price_cents: 1700, account_name: "Shop DE" });
+  });
+
   it("keeps listings out of 'active' that the real Vinted profile didn't show", async () => {
     const l = (await db.get<{ id: number }>("SELECT id FROM listings WHERE account_id = ? AND status = 'active' AND vinted_item_id IS NOT NULL ORDER BY id LIMIT 1", [accountA]))!;
     await db.run("UPDATE listings SET status = 'removed', profile_missing_at = ? WHERE id = ?", [new Date().toISOString(), l.id]);

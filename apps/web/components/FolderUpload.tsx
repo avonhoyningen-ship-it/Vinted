@@ -174,8 +174,9 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
       if (hint) fd.append("hints", hint);
       if (useAi && aiEnabled) fd.append("orient", "true"); // texts are written at upload
       try {
-        const r = await api<{ item: { title: string }; aiError: string | null }>("/listings/drafts", { method: "POST", body: fd });
-        out.push({ key: g.key, label, ok: !r.aiError, text: r.aiError ? `Entwurf angelegt, KI-Fehler: ${r.aiError}` : r.item.title });
+        const r = await api<{ item: { title: string; status: string }; aiError: string | null; mergedInto: number | null }>("/listings/drafts", { method: "POST", body: fd });
+        out.push({ key: g.key, label, ok: !r.aiError && !r.mergedInto,
+          text: r.mergedInto ? `Schon vorhanden („${r.item.title}“) – nicht doppelt angelegt` : r.aiError ? `Entwurf angelegt, KI-Fehler: ${r.aiError}` : r.item.title });
       } catch (e) {
         out.push({ key: g.key, label, ok: false, text: (e as Error).message });
       }

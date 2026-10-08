@@ -84,8 +84,8 @@ describe("folder upload with AI sales kit", () => {
   it("imports without texts and writes them fresh at every upload – price and photos stay", async () => {
     vi.mocked(generateListing).mockClear();
     const res = await request(app).post("/api/listings/drafts")
-      .attach("photos", await landscapeWithGps(), "A_1.jpg")
-      .attach("photos", await portrait(), "A_2.jpg")
+      .attach("photos", await sharp({ create: { width: 80, height: 40, channels: 3, background: "#2a2" } }).jpeg().toBuffer(), "A_1.jpg")
+      .attach("photos", await sharp({ create: { width: 40, height: 80, channels: 3, background: "#ee2" } }).jpeg().toBuffer(), "A_2.jpg")
       .field("folder", "50 breit 67 lang")
       .field("hints", "Größe: M. Kleiner Fleck am Ärmel")
       .field("orient", "true");

@@ -35,7 +35,7 @@ export default function ArchivePage() {
 
   return (
     <>
-      <PageHead title="Archiv" sub="Alle je eingestellten Artikel – dauerhaft gespeichert, unabhängig vom Vinted-Status">
+      <PageHead title="Archiv" sub="Alles, was schon mal auf Vinted war – jeder Artikel nur einmal. Entwürfe findest du unter Listings.">
         <Link className="btn primary" href="/listings">+ Neuer Artikel</Link>
       </PageHead>
       <div className="card form-grid" style={{ marginBottom: 16 }}>
@@ -49,7 +49,7 @@ export default function ArchivePage() {
         <label className="field">Status
           <select value={status} onChange={(e) => reset(setStatus)(e.target.value)}>
             <option value="">Alle</option>
-            {Object.entries(ITEM_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {Object.entries(ITEM_STATUS).filter(([k]) => k !== "draft" && k !== "queued").map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </label>
         <label className="field">Kategorie

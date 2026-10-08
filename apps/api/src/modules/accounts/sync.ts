@@ -6,6 +6,7 @@ import {
   addPhoto, CONDITIONS, createItem, createListing, endListing, markListingSold, recomputeItemStatus, type ListingRow,
 } from "../archive/repo.js";
 import { ingestEvent } from "../automations/engine.js";
+import { mergeIfKnown } from "../duplicates/merge.js";
 import { confirmPrice } from "../pricing/engine.js";
 import { getAccount, sessionFor, setAccountStatus, type AccountRow } from "./repo.js";
 
@@ -55,12 +56,15 @@ async function importRemoteListing(account: AccountRow, r: RemoteListing): Promi
       console.warn(`[sync] Foto-Import fehlgeschlagen (${url}):`, (e as Error).message);
     }
   }
-  return createListing({
+  const listing = await createListing({
     item_id: item.id, account_id: account.id, vinted_item_id: r.vintedItemId, url: r.url, title: r.title,
     description: r.description, price_cents: r.priceCents, currency: r.currency,
     status: r.status === "sold" ? "sold" : r.status === "hidden" ? "hidden" : "active",
     listed_at: r.createdAt ?? nowIso(), favourites: r.favourites, views: r.views,
   });
+  // Same garment already in the archive (e.g. uploaded by hand, or a reupload)? → one item, not two.
+  const itemId = await mergeIfKnown(item.id);
+  return itemId === item.id ? listing : { ...listing, item_id: itemId };
 }
 
 const normTitle = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();

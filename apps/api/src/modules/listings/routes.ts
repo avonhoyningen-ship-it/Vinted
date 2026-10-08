@@ -9,6 +9,7 @@ import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, re
 import { confirmPrice, refreshSuggestion } from "../pricing/engine.js";
 import { aiEnabled, detectOrientations, groupingThumb, groupPhotosInOrder, type Rotation } from "./ai.js";
 import { orientPhotos, runAi } from "./salesKit.js";
+import { mergeIfKnown } from "../duplicates/merge.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
 
 export const listingsRouter = Router();
@@ -37,6 +38,19 @@ listingsRouter.get("/uploaded", h(async (_req, res) => {
     ORDER BY l.listed_at DESC, l.id DESC LIMIT 500
   `);
   res.json(rows.map(withDaysOnline));
+}));
+
+/** Everything that was sold (one row per article, latest sale) – the "Verkauft" tab, to upload it again later. */
+listingsRouter.get("/sold", h(async (_req, res) => {
+  res.json(await db.all(`
+    SELECT i.id, i.title, i.brand, i.size, i.price_cents, i.currency,
+      (SELECT file_name FROM item_photos p WHERE p.item_id = i.id ORDER BY position, id LIMIT 1) AS cover_photo,
+      l.sold_at, l.sold_price_cents, a.name AS account_name, l.url
+    FROM items i
+    JOIN listings l ON l.id = (SELECT id FROM listings x WHERE x.item_id = i.id AND x.status = 'sold' ORDER BY x.sold_at DESC, x.id DESC LIMIT 1)
+    JOIN accounts a ON a.id = l.account_id
+    WHERE i.status = 'sold'
+    ORDER BY l.sold_at DESC LIMIT 1000`));
 }));
 
 // ---------- drafts (photo-first creation) ----------
@@ -94,7 +108,9 @@ listingsRouter.post("/drafts", upload.array("photos", 20), h(async (req, res) =>
       aiError = (e as Error).message;
     }
   }
-  res.status(201).json({ item: await getItem(item.id), photos: await listPhotos(item.id), suggestion, aiError });
+  // Same garment already there (same photos)? → no second article: merge into the existing one.
+  const keep = await mergeIfKnown(item.id);
+  res.status(201).json({ item: await getItem(keep), photos: await listPhotos(keep), suggestion, aiError, mergedInto: keep !== item.id ? keep : null });
 }));
 
 /**

@@ -104,13 +104,13 @@ const future = Math.floor(Date.now() / 1000) + 30 * 86400;
 
 describe("cloud: login, subscription, access", () => {
   it("requires a Clerk session", async () => {
-    expect((await request(app).get("/api/archive")).status).toBe(401);
-    expect((await request(app).get("/api/archive").set({ Authorization: "Bearer forged" })).status).toBe(401);
+    expect((await request(app).get("/api/archive?status=draft")).status).toBe(401);
+    expect((await request(app).get("/api/archive?status=draft").set({ Authorization: "Bearer forged" })).status).toBe(401);
     expect((await request(app).get("/api/health")).status).toBe(200);
   });
 
   it("blocks the app without a subscription but shows the upgrade info", async () => {
-    const res = await request(app).get("/api/archive").set(as("alice"));
+    const res = await request(app).get("/api/archive?status=draft").set(as("alice"));
     expect(res.status).toBe(402);
     expect(res.body.code).toBe("subscription_required");
     const me = await request(app).get("/api/me").set(as("alice"));
@@ -151,7 +151,7 @@ describe("cloud: login, subscription, access", () => {
     expect(res.status).toBe(200);
     const me = await request(app).get("/api/me").set(as("alice"));
     expect(me.body).toMatchObject({ active: true, subscription: { status: "active", currentPeriodEnd: new Date(future * 1000).toISOString() } });
-    expect((await request(app).get("/api/archive").set(as("alice"))).status).toBe(200);
+    expect((await request(app).get("/api/archive?status=draft").set(as("alice"))).status).toBe(200);
     // Already subscribed → no second checkout
     expect((await request(app).post("/api/billing/checkout").set(as("alice")).send(CONSENT)).status).toBe(409);
   });
@@ -181,10 +181,10 @@ describe("cloud: login, subscription, access", () => {
     await request(app).post("/api/billing/checkout").set(as("bob")).send(CONSENT);
     subs.set("sub_bob", { id: "sub_bob", status: "active", customer: "cus_2", metadata: { clerk_user_id: "user_bob" }, items: { data: [] } as unknown as Stripe.Subscription["items"] });
     await webhook("customer.subscription.created", subs.get("sub_bob")!);
-    const bob = await request(app).get("/api/archive").set(as("bob"));
+    const bob = await request(app).get("/api/archive?status=draft").set(as("bob"));
     expect(bob.status).toBe(200);
     expect(bob.body.total).toBe(0);
-    const alice = await request(app).get("/api/archive").set(as("alice"));
+    const alice = await request(app).get("/api/archive?status=draft").set(as("alice"));
     expect(alice.body.items.map((i: { title: string }) => i.title)).toEqual(["Sakura Tee von Alice"]);
     const aliceItem = alice.body.items[0].id;
     expect((await request(app).get(`/api/archive/${aliceItem}`).set(as("bob"))).status).toBe(404);
@@ -213,11 +213,11 @@ describe("cloud: login, subscription, access", () => {
     subs.set("sub_alice", { ...subs.get("sub_alice")!, status: "canceled" });
     await webhook("customer.subscription.deleted", subs.get("sub_alice")!);
     expect((await request(app).get("/api/me").set(as("alice"))).body).toMatchObject({ active: false, subscription: { status: "canceled" } });
-    expect((await request(app).get("/api/archive").set(as("alice"))).status).toBe(402);
+    expect((await request(app).get("/api/archive?status=draft").set(as("alice"))).status).toBe(402);
     // Data stays – re-subscribing unlocks it again.
     subs.set("sub_alice", { ...subs.get("sub_alice")!, status: "active" });
     await webhook("customer.subscription.updated", subs.get("sub_alice")!);
-    expect((await request(app).get("/api/archive").set(as("alice"))).body.total).toBe(1);
+    expect((await request(app).get("/api/archive?status=draft").set(as("alice"))).body.total).toBe(1);
   });
 
   it("cancels via the public button (§ 312k BGB) without login and confirms by e-mail", async () => {
@@ -319,12 +319,12 @@ describe("cloud: login, subscription, access", () => {
     expect(await withUser("user_bob", () => d.all("SELECT id FROM items"))).toEqual([]);
     expect(await withUser("user_bob", () => d.all("SELECT id FROM accounts"))).toEqual([]);
     // Alice is untouched
-    expect((await request(app).get("/api/archive").set(as("alice"))).body.total).toBeGreaterThan(0);
+    expect((await request(app).get("/api/archive?status=draft").set(as("alice"))).body.total).toBeGreaterThan(0);
   });
 
   it("runs the posting assistant only through the PC helper in the cloud", async () => {
     expect((await request(app).get("/api/assist/status").set(as("alice"))).body.state).toBe("idle");
-    const items = (await request(app).get("/api/archive").set(as("alice"))).body.items as { id: number; photo_count: number }[];
+    const items = (await request(app).get("/api/archive?status=draft").set(as("alice"))).body.items as { id: number; photo_count: number }[];
     const withPhoto = items.find((i) => Number(i.photo_count) > 0)!;
     const acc = await request(app).post("/api/accounts").set(as("alice")).send({ name: "Shop", domain: "vinted.de" });
     const res = await request(app).post("/api/assist/start").set(as("alice")).send({ itemIds: [withPhoto.id], accountId: acc.body.account.id });

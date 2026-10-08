@@ -4,6 +4,7 @@ import { startWorkers } from "./workers/scheduler.js";
 import { applyBrandRules } from "./modules/listings/brandRules.js";
 import { forEachUser, LOCAL_USER, withUser } from "./db/index.js";
 import { startVintedChromes } from "./modules/accounts/chromeLaunch.js";
+import { mergeAllDuplicates } from "./modules/duplicates/merge.js";
 import { startCluster } from "./lib/cluster.js";
 
 if (env.appMode === "cloud") {
@@ -34,6 +35,12 @@ if (env.appMode === "local" && env.dashboardPassword && env.dashboardPassword.le
 const app = createApp();
 // Without a password the API only listens on this PC; with one it is reachable in the network.
 const host = env.appMode === "cloud" || env.dashboardPassword || env.apiToken ? "0.0.0.0" : "127.0.0.1";
+// One garment = one article: merge copies that are already in the archive (same photos).
+void forEachUser(async () => {
+  const n = await mergeAllDuplicates();
+  if (n) console.log(`[archiv] ${n} doppelte Artikel zusammengeführt`);
+}).catch((e) => console.warn("Doppelte Artikel:", (e as Error).message));
+
 // Brand rules also cover drafts created before a rule existed.
 void forEachUser(() => applyBrandRules()).catch((e) => console.warn("Markenregeln:", (e as Error).message));
 

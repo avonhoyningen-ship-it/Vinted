@@ -257,7 +257,8 @@ export const archiveQuery = z.object({
 });
 
 export async function searchItems(q: z.infer<typeof archiveQuery>) {
-  const where: string[] = [];
+  // The archive holds what has been on Vinted at least once (drafts live under Listings).
+  const where: string[] = q.status === "draft" ? [] : ["EXISTS (SELECT 1 FROM listings l WHERE l.item_id = i.id)"];
   const params: Record<string, unknown> = {};
   if (q.q) {
     where.push("(i.title LIKE @q OR i.description LIKE @q OR i.brand LIKE @q)");
