@@ -11,9 +11,13 @@ function Need($cmd, $id, $name) {
   if (Get-Command $cmd -ErrorAction SilentlyContinue) { Write-Host "$name ist installiert." -ForegroundColor Green; return }
   if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw "$name fehlt und winget ist nicht verfuegbar. Bitte $name von Hand installieren und dieses Skript nochmal starten." }
   Write-Host "Installiere $name ..." -ForegroundColor Cyan
-  winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements | Out-Host
+  # Only the winget source: the Microsoft Store source often fails (certificate errors) and makes the ID ambiguous.
+  winget install --id $id -e --source winget --silent --accept-package-agreements --accept-source-agreements | Out-Host
+  $code = $LASTEXITCODE
   Refresh-Path
-  if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) { throw "$name wurde installiert, ist aber noch nicht verfuegbar. Bitte PowerShell schliessen, neu oeffnen und die Zeile nochmal einfuegen." }
+  if (Get-Command $cmd -ErrorAction SilentlyContinue) { Write-Host "$name ist jetzt installiert." -ForegroundColor Green; return }
+  if ($code -ne 0) { throw "$name konnte nicht installiert werden (winget-Fehler $code). Bitte $name von Hand installieren und die Zeile nochmal einfuegen." }
+  throw "$name wurde installiert, ist aber in diesem Fenster noch nicht verfuegbar. Bitte das Fenster schliessen, ein neues oeffnen und die Zeile nochmal einfuegen."
 }
 
 Write-Host ""
