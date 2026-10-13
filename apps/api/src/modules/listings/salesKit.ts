@@ -21,7 +21,7 @@ export async function runAi(itemId: number, hints: string | undefined, keep: Par
   const sent = photos.slice(0, 20);
   const order = normalizeOrder(s.photo_order ?? [], sent.length).map((i) => sent[i]!.id);
   if (reorder) await reorderPhotos(itemId, [...order, ...photos.slice(20).map((p) => p.id)]);
-  const description = composeDescription(s);
+  const description = composeDescription(s, { measurements: item.measurements, closing: await getSetting("ai.closingText") });
   if (apply) {
     const rules = await loadRules();
     await updateItem(itemId, {

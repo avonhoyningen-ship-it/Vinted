@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS = {
   "ai.language": "de",
   /** Instructions for AI listing texts (Einstellungen → KI-Prompt). */
   "ai.listingPrompt": DEFAULT_LISTING_PROMPT,
+  /** End of every description (shipping note etc.), between the pitch and the hashtags. */
+  "ai.closingText": "📦 Schneller Versand nach Zahlungseingang.\nBei Fragen melde dich gerne!\nPrivatverkauf – keine Garantie, Gewährleistung oder Rücknahme.",
   /** Write title, description and listing fields fresh with the AI every time an item is uploaded. */
   "ai.regenerateOnUpload": true,
   /** Brand rules, one per line: "<words in title/category/hashtags>=<brand>", e.g. "T-Shirt, Tee=Graphic Tee". */

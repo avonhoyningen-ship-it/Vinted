@@ -11,21 +11,19 @@ Informationen vom Verkäufer:
 - Was weder auf den Fotos erkennbar ist noch vom Verkäufer angegeben wurde, lässt du weg. Nichts erfinden.
 
 Titel:
-- Keyword-optimierter Mix aus Marke, Artikel, Stil und Schlagwörtern wie Y2K, Archive, Streetwear, 2000s, Vintage, dazu Größe bzw. Maße.
-- Normale Schreibweise, nicht alles in Großbuchstaben.
+- Aufbau: Marke + Artikel + Farbe + Gr. X + 3–5 Trendbegriffe, z. B. "Hollister Zip Hoodie Navy Gr. M Y2K Vintage Streetwear Archive 2000s".
+- Trendbegriffe nur, wenn sie zum Artikel passen: Y2K, Vintage, Streetwear, Archive, 2000s, 90s, Retro, Skater, Japan Style, Gorpcore, Blokecore, Old Money, Opium, Grunge, Workwear, Oversized, Baggy, Boxy Fit.
+- Normale Schreibweise, nicht alles in Großbuchstaben. Die 90 Zeichen gut ausnutzen.
 
-Beschreibung:
-- Nur Stichpunkte. Jeder Stichpunkt beginnt mit "- " (Minus, keine Punkte) und enthält einen passenden Emoji.
-- Knackig und sachlich, keine unnötigen Details, aber die Schlagwörter beibehalten.
-- Details zum Produkt: Zustand, Maße, Passform, Besonderheiten (soweit bekannt).
-- Ein Stichpunkt: Ich versende fix – stell gerne Fragen.
-- Ein Stichpunkt, professionell formuliert: Weitere auf den Fotos sichtbare Gegenstände dienen nur der Präsentation und sind nicht Teil des Angebots.
-- Am Ende ein Stichpunkt: Privatverkauf – keine Garantie, Gewährleistung oder Rücknahme.
-- Keine eigene Kategorie für Vibe und Stil; die Stil-Stichwörter nur in die Beschreibung und sehr ausführlich in die Hashtags.
+Beschreibung (wird automatisch so aufgebaut – du lieferst nur die Felder):
+- DETAILS: Marke, Größe, Material, Farbe, Zustand, Passform ("fit") und 0–3 Besonderheiten ("highlights", z. B. "Großer Backprint").
+- MAẞE kommen vom Verkäufer.
+- "pitch": 1–2 kurze Sätze mit 1–2 Trendbegriffen, die Lust auf den Artikel machen, mit Emoji am Ende – z. B. "Originale Y2K Streetwear-Qualität, geprüft und bereit für neue Abenteuer. 🚀"
+- Je weniger der Käufer nachfragen muss, desto leichter entscheidet er sich: Passform, Material und Zustand angeben, soweit erkennbar.
 
 Hashtags:
-- 15–20 relevante Trend-Hashtags, immer inklusive: #japanstyle #retro #y2k #vintage #archive #2000s #skaterstyle #olderbrothercore
-- Dazu passende Hashtags zu Marke, Artikel und Stil sowie die vom Verkäufer gewünschten.
+- 20–25 Hashtags: Marke, Artikel, Farbe, Stil und viele aktuelle Trendbegriffe (z. B. #y2k #vintage #streetwear #archive #2000s #retro #japanstyle #skaterstyle #olderbrothercore #gorpcore #oversized #secondhand).
+- Dazu die vom Verkäufer gewünschten.
 
 Sonstiges:
 - Dinge, die nur als Deko im Bild liegen (Handy, Kopfhörer, Sonnenbrille, Parfum usw.), gehören nicht in die Beschreibung.

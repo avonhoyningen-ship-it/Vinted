@@ -7,12 +7,14 @@ import { HttpError } from "../../lib/http.js";
 import { readPhoto } from "../../storage/photos.js";
 import { CONDITIONS, type PhotoRow } from "../archive/repo.js";
 import { normalizeCondition } from "../accounts/sync.js";
-import { parcelSize } from "./brandRules.js";
+import { parcelSize, parseMeasurements } from "./brandRules.js";
 
 export const ListingSuggestion = z.object({
-  title: z.string().describe("Vinted-Titel, max. 90 Zeichen, normale Schreibweise"),
-  bullets: z.array(z.string()).describe("Beschreibung als Stichpunkte; jeder beginnt mit '- ' und enthält einen Emoji"),
-  hashtags: z.array(z.string()).describe("15–20 Hashtags, jeweils mit #, ohne Leerzeichen"),
+  title: z.string().describe("Vinted-Titel, max. 90 Zeichen, normale Schreibweise: Marke, Artikel, Farbe, Größe und 3–5 passende Trendbegriffe (z. B. Y2K, Vintage, Streetwear, Archive, 2000s)"),
+  pitch: z.string().describe("1–2 kurze Sätze, die Lust auf den Artikel machen, mit 1–2 Trendbegriffen und einem Emoji am Ende – z. B. 'Original Y2K Streetwear-Piece, geprüft und bereit für neue Abenteuer. 🚀'"),
+  fit: z.string().nullable().describe("Passform, z. B. 'Oversized / Boxy Fit' oder 'Fällt normal aus' – nur wenn erkennbar oder vom Verkäufer angegeben, sonst null"),
+  highlights: z.array(z.string()).describe("0–3 kurze Besonderheiten ohne Emoji, z. B. 'Großer Backprint' oder 'Stick-Logo auf der Brust' (keine Maße, kein Zustand)"),
+  hashtags: z.array(z.string()).describe("20–25 Hashtags mit #, ohne Leerzeichen: Marke, Artikel, Farbe, Stil und viele aktuelle Trendbegriffe"),
   category: z.string().describe("Vollständiger Vinted-Kategoriepfad mit Vinteds deutschen Bezeichnungen, z. B. 'Herren > Kleidung > T-Shirts > Bedruckte T-Shirts'"),
   brand: z.string().nullable().describe("Marke falls erkennbar, sonst null"),
   size: z.string().nullable().describe("Größe laut Etikett oder Verkäufer, sonst null"),
@@ -49,7 +51,7 @@ Technische Vorgaben (immer einhalten):
   2. Foto nur vom Kleidungsstück bzw. Artikel selbst, ohne Deko
   3. Nahaufnahmen und Details (Print, Stoff, Nähte, Knöpfe, Mängel)
   4. Etikett/Tag (Marke, Größe, Pflegeetikett) ganz am Ende
-- "bullets" enthält nur die Stichpunkte der Beschreibung (ohne Titel, ohne Hashtags).
+- Die Beschreibung wird automatisch zusammengesetzt (DETAILS, MAẞE, "pitch", Versand-Hinweis, Hashtags) – liefere nur die Felder, keinen fertigen Fließtext.
 - Hashtags gehören ausschließlich in "hashtags".
 - "category" ist der komplette Vinted-Kategoriepfad vom Hauptbereich bis zur untersten Ebene, so wie er in Vinteds Kategorieauswahl heißt (z. B. "Herren > Kleidung > T-Shirts > Bedruckte T-Shirts" oder "Damen > Kleidung > Pullover & Sweater > Hoodies").
 - Maße und Größe nur übernehmen, wenn sie vom Verkäufer stammen oder klar auf einem Etikett lesbar sind.`;
@@ -125,14 +127,43 @@ export function normalizeOrder(order: number[], n: number): number[] {
   return out;
 }
 
-/** Bullets + hashtags → final Vinted description text. */
-export function composeDescription(s: Pick<ListingSuggestion, "bullets" | "hashtags">): string {
-  const bullets = s.bullets
-    .map((b) => b.trim())
-    .filter(Boolean)
-    .map((b) => (b.startsWith("-") ? b.replace(/^-\s*/, "- ") : `- ${b}`));
-  const tags = [...new Set(s.hashtags.map((t) => t.trim().replace(/\s+/g, "")).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`).toLowerCase()))];
-  return [bullets.join("\n"), tags.join(" ")].filter(Boolean).join("\n\n");
+const CONDITION_DE: Record<string, string> = {
+  new_with_tags: "Neu mit Etikett", new_without_tags: "Neu ohne Etikett", very_good: "Sehr gut", good: "Gut", satisfactory: "Zufriedenstellend",
+};
+
+export const DEFAULT_CLOSING = "📦 Schneller Versand nach Zahlungseingang.\nBei Fragen melde dich gerne!\nPrivatverkauf – keine Garantie, Gewährleistung oder Rücknahme.";
+
+/**
+ * Final Vinted description, built like the descriptions that sell well:
+ * DETAILS (brand, size, material, colour, condition, fit) – MAẞE – a short pitch –
+ * shipping note – lots of trend hashtags. Questions are answered before anyone asks.
+ */
+export function composeDescription(
+  s: Pick<ListingSuggestion, "pitch" | "fit" | "highlights" | "hashtags" | "brand" | "size" | "material" | "color" | "condition">,
+  opts: { measurements?: string | null; closing?: string | null } = {},
+): string {
+  const details = [
+    s.brand && `👕 Marke: ${s.brand}`,
+    s.size && `📏 Größe: ${s.size}`,
+    s.material && `🧵 Material: ${s.material}`,
+    s.color && `🎨 Farbe: ${s.color}`,
+    s.condition && `⏳ Zustand: ${CONDITION_DE[s.condition] ?? s.condition}`,
+    s.fit && `👤 Passform: ${s.fit}`,
+    ...(s.highlights ?? []).map((h) => h.trim()).filter(Boolean).slice(0, 3).map((h) => `✨ ${h.replace(/^[-•✨\s]+/, "")}`),
+  ].filter(Boolean) as string[];
+  const m = opts.measurements?.trim();
+  const { width, length } = parseMeasurements(m);
+  const sizes = width || length
+    ? [width && `• Breite: ${width} cm`, length && `• Länge: ${length} cm`].filter(Boolean) as string[]
+    : m ? [`• ${m}`] : [];
+  const tags = [...new Set(s.hashtags.map((t) => t.trim().replace(/\s+/g, "")).filter((t) => t.replace("#", "")).map((t) => (t.startsWith("#") ? t : `#${t}`).toLowerCase()))];
+  return [
+    details.length ? `DETAILS\n${details.join("\n")}` : "",
+    sizes.length ? `📐 MAẞE\n${sizes.join("\n")}` : "",
+    s.pitch?.trim() ?? "",
+    (opts.closing ?? DEFAULT_CLOSING).trim(),
+    tags.join(" "),
+  ].filter(Boolean).join("\n\n");
 }
 
 // ---------- grouping a flat folder into articles ----------

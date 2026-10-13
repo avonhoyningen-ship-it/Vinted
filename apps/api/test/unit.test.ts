@@ -98,6 +98,10 @@ describe("brand rules and measurements", async () => {
     expect(parseMeasurements("Sakura T-Shirt Gr. M 43x65")).toEqual({ width: 43, length: 65 });
     expect(parseMeasurements("L68 B52")).toEqual({ width: 52, length: 68 });
     expect(parseMeasurements(null)).toEqual({ width: null, length: null });
+    // Folder names with the number first
+    expect(parseMeasurements("50 breit 67 lang")).toEqual({ width: 50, length: 67 });
+    expect(parseMeasurements("57breit 70lang")).toEqual({ width: 57, length: 70 });
+    expect(parseMeasurements("50breit 61 lang")).toEqual({ width: 50, length: 61 });
   });
 });
 
@@ -176,7 +180,7 @@ describe("AI sales kit parsing", () => {
   it("maps condition and parcel size leniently instead of failing the item", async () => {
     const { parseSuggestion } = await import("../src/modules/listings/ai.js");
     const base = {
-      title: "T", bullets: [], hashtags: [], category: "Herren", brand: null, size: null, color: null, material: null,
+      title: "T", pitch: "", fit: null, highlights: [], hashtags: [], category: "Herren", brand: null, size: null, color: null, material: null,
       suggested_price_eur: 20, price_reasoning: "", rotations: [], photo_order: [1], confidence_notes: "",
     };
     expect(parseSuggestion({ ...base, condition: "Sehr gut", parcel_size: "klein (Umschlag)" })).toMatchObject({ condition: "very_good", parcel_size: "Klein" });

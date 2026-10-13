@@ -75,10 +75,16 @@ export async function applyBrandRules(): Promise<number> {
   return changed;
 }
 
-/** "Breite 43, Länge 65" / "43x65" / "Schulter 43 Laenge 65" → { width: 43, length: 65 }. */
+/** "Breite 43, Länge 65" / "43x65" / "Schulter 43 Laenge 65" / "50 breit 67 lang" → { width, length }. */
 export function parseMeasurements(text: string | null | undefined): { width: number | null; length: number | null } {
   const t = (text ?? "").toLowerCase();
   const num = (re: RegExp) => { const m = t.match(re); return m ? Number(m[1]!.replace(",", ".")) : null; };
+  // Number first, as in folder names like "50 breit 67 lang" or "57breit 70lang".
+  if (/^\s*\d/.test(t)) {
+    const w = num(/(\d+(?:[.,]\d+)?)\s*(?:cm)?\s*(?:breite?|weite|schulter\w*|achsel\w*|b\b)/);
+    const l = num(/(\d+(?:[.,]\d+)?)\s*(?:cm)?\s*(?:lang|l(?:ä|ae)nge|l\b)/);
+    if (w !== null || l !== null) return { width: w, length: l };
+  }
   let width = num(/(?:breite|schulter\w*|achsel\w*|weite|b)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/);
   let length = num(/(?:l(?:ä|ae)nge|l)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/);
   if (width === null || length === null) {

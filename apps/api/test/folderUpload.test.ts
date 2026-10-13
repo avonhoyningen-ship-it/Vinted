@@ -12,7 +12,8 @@ vi.mock("../src/modules/listings/ai.js", async (orig) => {
     detectOrientations: vi.fn(async (imgs: Buffer[]) => imgs.map((_, i) => (i === 0 ? 90 : 0))),
     generateListing: vi.fn(async (_photos: unknown, opts: { measurements?: string | null; hints?: string }) => ({
       title: "Carhartt Detroit Jacket Y2K Vintage Archive Workwear Gr. L",
-      bullets: ["- 🧥 Carhartt Detroit Jacket", `📏 Maße: ${opts.measurements}`, "- 📦 Ich versende fix – stell gerne Fragen", "- ⚖️ Privatverkauf – keine Garantie, Gewährleistung oder Rücknahme"],
+      pitch: "Originale Carhartt Workwear-Qualität im Y2K Look, bereit für neue Abenteuer. 🚀", fit: "Fällt normal aus",
+      highlights: ["Detroit Jacket mit Cordkragen"],
       hashtags: ["#japanstyle", "Y2K", "#vintage", "#y2k", "#older brother core"],
       category: "Herren > Jacken", brand: "Carhartt", size: "L", condition: "very_good", color: "Braun", material: "Canvas",
       suggested_price_eur: 39, price_reasoning: "gefragt", confidence_notes: "",
@@ -62,9 +63,14 @@ describe("folder upload with AI sales kit", () => {
     // No learned prices yet → the AI estimate becomes the suggestion (to be confirmed with ✓).
     expect(item.price_suggested_cents).toBe(3900);
     expect(item.price_suggestion_reason).toMatch(/KI-Schätzung/);
-    expect(item.description).toContain("- 📏 Maße: Laenge 70 Breite 55");
-    expect(item.description.split("\n").filter((l: string) => l.startsWith("- "))).toHaveLength(4);
-    expect(item.description).toMatch(/#japanstyle #y2k #vintage #olderbrothercore$/);
+    // Built like descriptions that sell: DETAILS – MAẞE – pitch – shipping note – hashtags.
+    expect(item.description).toBe([
+      "DETAILS\n👕 Marke: Carhartt\n📏 Größe: L\n🧵 Material: Canvas\n🎨 Farbe: Braun\n⏳ Zustand: Sehr gut\n👤 Passform: Fällt normal aus\n✨ Detroit Jacket mit Cordkragen",
+      "📐 MAẞE\n• Breite: 55 cm\n• Länge: 70 cm",
+      "Originale Carhartt Workwear-Qualität im Y2K Look, bereit für neue Abenteuer. 🚀",
+      "📦 Schneller Versand nach Zahlungseingang.\nBei Fragen melde dich gerne!\nPrivatverkauf – keine Garantie, Gewährleistung oder Rücknahme.",
+      "#japanstyle #y2k #vintage #olderbrothercore",
+    ].join("\n\n"));
 
     // Uploaded sorted by file name (IMG_2, IMG_10); the model put IMG_10 (outfit shot) first.
     const detail = await request(app).get(`/api/archive/${item.id}`);
@@ -106,7 +112,8 @@ describe("folder upload with AI sales kit", () => {
     const data = await localAssistSource.load({ itemId: id, accountId });
     expect(vi.mocked(generateListing).mock.calls.at(-1)![1]).toMatchObject({ hints: "Größe: M. Kleiner Fleck am Ärmel", measurements: "50 breit 67 lang" });
     expect(data).toMatchObject({ title: expect.stringMatching(/^Carhartt/), price: "22", aiError: null, condition: "Sehr gut" });
-    expect(data.description).toContain("Carhartt Detroit Jacket");
+    expect(data.description).toContain("👕 Marke: Carhartt");
+    expect(data.description).toContain("• Breite: 50 cm");
     const after = (await request(app).get(`/api/archive/${id}`)).body;
     expect(after.item).toMatchObject({ price_cents: 2200, price_confirmed: 1, category: "Herren > Jacken", measurements: "50 breit 67 lang" });
     expect(after.photos.map((p: { id: number }) => p.id)).toEqual(before.map((p: { id: number }) => p.id)); // order untouched

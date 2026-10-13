@@ -9,7 +9,7 @@ import { useApi } from "@/lib/useApi";
 interface Settings {
   "sound.preset": SoundPreset; "sound.volume": number; "sound.enabled": boolean;
   "notifications.desktop": boolean; "notifications.confetti": boolean;
-  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string; "ai.regenerateOnUpload": boolean; "brand.rules": string; "parcel.rules": string;
+  "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string; "ai.regenerateOnUpload": boolean; "ai.closingText": string; "brand.rules": string; "parcel.rules": string;
 }
 interface Info { aiEnabled: boolean; aiModel: string; pollIntervalMinutes: number; publishIntervalMinutes: number }
 
@@ -87,6 +87,9 @@ export default function SettingsPage() {
         </>} />
 
         <PromptEditor value={data["ai.listingPrompt"]} onSave={(v) => update({ "ai.listingPrompt": v })} />
+        <RulesEditor title="Abschluss jeder Beschreibung" value={data["ai.closingText"] ?? ""} onSave={(v) => update({ "ai.closingText": v })} help={<>
+          Steht in jeder Beschreibung zwischen dem kurzen Text und den Hashtags. Zum Beispiel Versand-Hinweis oder
+          „Aus tierfreiem Nichtraucherhaushalt.“ (nur eintragen, wenn es stimmt).</>} />
 
         {info.data && (
           <div className="card stack">
