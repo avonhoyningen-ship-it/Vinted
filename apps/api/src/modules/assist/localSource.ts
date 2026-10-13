@@ -22,7 +22,8 @@ export async function assistData(itemId: number, accountId: number): Promise<Omi
     description: item.description,
     price: price ? priceText(price) : null,
     category: item.category,
-    brand: ruleBrand(item, rules.brand) ?? item.brand,
+    // Brand switch off (default): only a brand rule (e.g. "Graphic Tee"), never the real brand.
+    brand: ruleBrand(item, rules.brand) ?? (item.mention_brand ? item.brand : null),
     size: item.size,
     condition: CONDITION_LABELS[item.condition ?? ""] ?? null,
     color: item.color,

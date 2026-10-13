@@ -11,7 +11,7 @@ import { parcelSize, parseMeasurements } from "./brandRules.js";
 
 export const ListingSuggestion = z.object({
   title: z.string().describe("Vinted-Titel, max. 90 Zeichen, normale Schreibweise: Marke, Artikel, Farbe, Größe und 3–5 passende Trendbegriffe (z. B. Y2K, Vintage, Streetwear, Archive, 2000s)"),
-  pitch: z.string().describe("1–2 kurze Sätze, die Lust auf den Artikel machen, mit 1–2 Trendbegriffen und einem Emoji am Ende – z. B. 'Original Y2K Streetwear-Piece, geprüft und bereit für neue Abenteuer. 🚀'"),
+  pitch: z.string().describe("1–2 kurze Sätze, die Lust auf den Artikel machen, mit 1–2 Trendbegriffen und einem Emoji am Ende – z. B. 'Y2K Streetwear-Piece, geprüft und bereit für neue Abenteuer. 🚀'. Nie 'original' oder 'authentisch' schreiben"),
   fit: z.string().nullable().describe("Passform, z. B. 'Oversized / Boxy Fit' oder 'Fällt normal aus' – nur wenn erkennbar oder vom Verkäufer angegeben, sonst null"),
   highlights: z.array(z.string()).describe("0–3 kurze Besonderheiten ohne Emoji, z. B. 'Großer Backprint' oder 'Stick-Logo auf der Brust' (keine Maße, kein Zustand)"),
   hashtags: z.array(z.string()).describe("20–25 Hashtags mit #, ohne Leerzeichen: Marke, Artikel, Farbe, Stil und viele aktuelle Trendbegriffe"),
@@ -64,6 +64,8 @@ export interface GenerateOptions {
   stylePrompt: string;
   /** The seller's learned prices for similar items (one per line). */
   priceExamples?: string;
+  /** Seller's switch: name the brand (off = never mention it anywhere). */
+  mentionBrand?: boolean;
 }
 
 /** Small JPEG for the model (faster, cheaper); full-size files stay untouched. */
@@ -84,6 +86,10 @@ export async function generateListing(photos: PhotoRow[], opts: GenerateOptions)
     opts.measurements ? `Maße vom Verkäufer (aus dem Ordnernamen): ${opts.measurements}` : "Keine Maße angegeben – keine Maße erfinden.",
     opts.priceExamples ? `Preise, die der Verkäufer für ähnliche Artikel verlangt bzw. erzielt hat – orientiere deinen Preisvorschlag daran:\n${opts.priceExamples}` : "",
     opts.hints ? `Hinweise vom Verkäufer (haben Vorrang vor deiner Einschätzung): ${opts.hints}` : "Keine weiteren Hinweise vom Verkäufer.",
+    opts.mentionBrand
+      ? "Die Marke darf genannt werden."
+      : "WICHTIG: Die Marke wird NICHT genannt – nicht im Titel, nicht im pitch, nicht in highlights und nicht in den Hashtags (auch keine Markennamen von Logos oder Etiketten). Beschreibe den Artikel nur über Art, Farbe, Stil und Print.",
+    "Schreibe nie, dass etwas „original“, „authentisch“ oder „echt“ ist.",
   ].filter(Boolean).join("\n");
   content.push({ type: "text", text: `Erstelle das Verkaufs-Kit für diesen Artikel.\n${info}` });
 
@@ -131,6 +137,34 @@ const CONDITION_DE: Record<string, string> = {
   new_with_tags: "Neu mit Etikett", new_without_tags: "Neu ohne Etikett", very_good: "Sehr gut", good: "Gut", satisfactory: "Zufriedenstellend",
 };
 
+/** Words that claim authenticity – never written. */
+const ORIGINAL_WORDS = /\b(100\s*%\s*)?(original(e|er|es|en)?|authentisch(e|er|es|en)?|authentic|genuine|echt(e|er|es|en)?)\b/gi;
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Last safety net on the AI's texts: never "original"; with the brand switch off,
+ * no brand name in title, pitch, highlights or hashtags.
+ */
+export function scrubSuggestion<T extends Pick<ListingSuggestion, "title" | "pitch" | "highlights" | "hashtags">>(
+  s: T, opts: { mentionBrand: boolean; brands: (string | null | undefined)[] },
+): T {
+  const brands = opts.mentionBrand ? [] : [...new Set(opts.brands.map((b) => b?.trim()).filter((b): b is string => !!b && b.length > 1))];
+  const brandRe = brands.length ? new RegExp(`(^|[^\\p{L}\\p{N}])(${brands.map(esc).join("|")})(?=$|[^\\p{L}\\p{N}])`, "giu") : null;
+  const clean = (t: string) => {
+    let out = t.replace(ORIGINAL_WORDS, "");
+    if (brandRe) out = out.replace(brandRe, "$1");
+    return out.replace(/\s+([,.!?])/g, "$1").replace(/\s{2,}/g, " ").replace(/^[\s,–-]+/, "").trim();
+  };
+  const tagBrand = (t: string) => brands.some((b) => t.replace(/^#/, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "").includes(b.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")));
+  return {
+    ...s,
+    title: clean(s.title),
+    pitch: clean(s.pitch ?? ""),
+    highlights: (s.highlights ?? []).map(clean).filter(Boolean),
+    hashtags: s.hashtags.filter((t) => !/^#?(original|authentic|echt)/i.test(t) && !tagBrand(t)),
+  };
+}
+
 export const DEFAULT_CLOSING = "📦 Schneller Versand nach Zahlungseingang.\nBei Fragen melde dich gerne!\nPrivatverkauf – keine Garantie, Gewährleistung oder Rücknahme.";
 
 /**
@@ -140,10 +174,10 @@ export const DEFAULT_CLOSING = "📦 Schneller Versand nach Zahlungseingang.\nBe
  */
 export function composeDescription(
   s: Pick<ListingSuggestion, "pitch" | "fit" | "highlights" | "hashtags" | "brand" | "size" | "material" | "color" | "condition">,
-  opts: { measurements?: string | null; closing?: string | null } = {},
+  opts: { measurements?: string | null; closing?: string | null; mentionBrand?: boolean } = {},
 ): string {
   const details = [
-    s.brand && `👕 Marke: ${s.brand}`,
+    opts.mentionBrand && s.brand && `👕 Marke: ${s.brand}`,
     s.size && `📏 Größe: ${s.size}`,
     s.material && `🧵 Material: ${s.material}`,
     s.color && `🎨 Farbe: ${s.color}`,
@@ -222,6 +256,55 @@ export async function groupPhotosInOrder(images: Buffer[]): Promise<number[][]> 
   const groups: number[][] = [];
   newItem.forEach((isNew, i) => (isNew || !groups.length ? groups.push([i]) : groups[groups.length - 1]!.push(i)));
   return groups;
+}
+
+// ---------- measurements file: which line belongs to which article ----------
+
+const LineMatch = z.object({
+  assignments: z.array(z.object({
+    article: z.number().int().describe("Artikelnummer (ab 1)"),
+    line: z.number().int().nullable().describe("Zeilennummer aus der Datei (ab 1) oder null, wenn keine passt"),
+    sure: z.boolean().describe("true nur, wenn die Zeile eindeutig zu diesem Artikel passt (Art und Farbe stimmen, keine andere Zeile passt genauso)"),
+  })),
+  lines: z.array(z.object({
+    line: z.number().int(),
+    article: z.string().describe("Was für ein Artikel laut Zeile, z. B. 'schwarzer Hoodie'"),
+    measurements: z.string().nullable().describe("Nur die Maße aus der Zeile, normiert, z. B. 'Breite 56 cm, Länge 67 cm', sonst null"),
+  })),
+});
+export type LineMatch = z.infer<typeof LineMatch>;
+
+/**
+ * The seller's text file has one line per article ("schwarzer Hoodie 56 breit 67 lang").
+ * Matches the lines to the photo groups; unclear ones come back as not sure (the seller decides).
+ */
+export async function matchLinesToGroups(groups: Buffer[][], lines: string[]): Promise<LineMatch> {
+  const content: Anthropic.ContentBlockParam[] = [];
+  groups.forEach((imgs, g) => {
+    content.push({ type: "text", text: `Artikel ${g + 1}:` });
+    for (const buf of imgs.slice(0, 2)) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: buf.toString("base64") } });
+  });
+  content.push({ type: "text", text: `Zeilen aus der Datei des Verkäufers:\n${lines.map((l, i) => `${i + 1}: ${l}`).join("\n")}\n\nOrdne jedem Artikel die passende Zeile zu. Jede Zeile gehört zu höchstens einem Artikel. Im Zweifel sure=false – lieber nachfragen als falsch zuordnen.` });
+  const r = await getClient().messages.parse({
+    model: env.anthropicModel,
+    max_tokens: 8000,
+    system: "Du ordnest Produktfotos von Kleidung den Zeilen einer Maß-Liste zu. Achte auf Art des Kleidungsstücks, Farbe, Print und Marke. Die Reihenfolge der Zeilen ist oft, aber nicht immer, die der Artikel.",
+    messages: [{ role: "user", content }],
+    output_config: { format: zodOutputFormat(LineMatch) },
+  });
+  if (!r.parsed_output) throw new HttpError(502, "KI-Antwort zur Maß-Datei konnte nicht gelesen werden");
+  return checkLineMatch(r.parsed_output, groups.length, lines.length);
+}
+
+/** A line used twice can't be right for both, unknown lines don't count, every article gets an entry. */
+export function checkLineMatch(m: LineMatch, articles: number, lineCount: number): LineMatch {
+  const byArticle = new Map(m.assignments.filter((a) => a.article >= 1 && a.article <= articles).map((a) => [a.article, { ...a }]));
+  const assignments = Array.from({ length: articles }, (_, i) => byArticle.get(i + 1) ?? { article: i + 1, line: null, sure: false });
+  for (const a of assignments) if (a.line !== null && (a.line < 1 || a.line > lineCount)) a.line = null;
+  const used = new Map<number, number>();
+  for (const a of assignments) if (a.line) used.set(a.line, (used.get(a.line) ?? 0) + 1);
+  for (const a of assignments) if (!a.line || used.get(a.line)! > 1) a.sure = false;
+  return { ...m, assignments };
 }
 
 /** Normalises any uploaded image into a small JPEG for grouping. */

@@ -8,6 +8,10 @@ vi.mock("../src/modules/listings/ai.js", async (orig) => {
   return {
     ...real,
     aiEnabled: () => true,
+    matchLinesToGroups: vi.fn(async (groups: Buffer[][], lines: string[]) => real.checkLineMatch({
+      assignments: [{ article: 1, line: 2, sure: true }, { article: 2, line: 2, sure: true }],
+      lines: lines.map((l, i) => ({ line: i + 1, article: l.split(" ")[0]!, measurements: "Breite 56 cm, Länge 67 cm" })),
+    }, groups.length, lines.length)),
     // IMG_2 lies on its side, IMG_10 is upright.
     detectOrientations: vi.fn(async (imgs: Buffer[]) => imgs.map((_, i) => (i === 0 ? 90 : 0))),
     generateListing: vi.fn(async (_photos: unknown, opts: { measurements?: string | null; hints?: string }) => ({
@@ -65,9 +69,9 @@ describe("folder upload with AI sales kit", () => {
     expect(item.price_suggestion_reason).toMatch(/KI-Schätzung/);
     // Built like descriptions that sell: DETAILS – MAẞE – pitch – shipping note – hashtags.
     expect(item.description).toBe([
-      "DETAILS\n👕 Marke: Carhartt\n📏 Größe: L\n🧵 Material: Canvas\n🎨 Farbe: Braun\n⏳ Zustand: Sehr gut\n👤 Passform: Fällt normal aus\n✨ Detroit Jacket mit Cordkragen",
+      "DETAILS\n📏 Größe: L\n🧵 Material: Canvas\n🎨 Farbe: Braun\n⏳ Zustand: Sehr gut\n👤 Passform: Fällt normal aus\n✨ Detroit Jacket mit Cordkragen",
       "📐 MAẞE\n• Breite: 55 cm\n• Länge: 70 cm",
-      "Originale Carhartt Workwear-Qualität im Y2K Look, bereit für neue Abenteuer. 🚀",
+      "Workwear-Qualität im Y2K Look, bereit für neue Abenteuer. 🚀", // no "original", no brand (switch off)
       "📦 Schneller Versand nach Zahlungseingang.\nBei Fragen melde dich gerne!\nPrivatverkauf – keine Garantie, Gewährleistung oder Rücknahme.",
       "#japanstyle #y2k #vintage #olderbrothercore",
     ].join("\n\n"));
@@ -111,15 +115,32 @@ describe("folder upload with AI sales kit", () => {
     const accountId = await db.insert("INSERT INTO accounts (name, domain) VALUES ('Upload-Shop', 'vinted.de')");
     const data = await localAssistSource.load({ itemId: id, accountId });
     expect(vi.mocked(generateListing).mock.calls.at(-1)![1]).toMatchObject({ hints: "Größe: M. Kleiner Fleck am Ärmel", measurements: "50 breit 67 lang" });
-    expect(data).toMatchObject({ title: expect.stringMatching(/^Carhartt/), price: "22", aiError: null, condition: "Sehr gut" });
-    expect(data.description).toContain("👕 Marke: Carhartt");
+    // Brand switch off (default): no brand anywhere – title, description, Vinted's brand field.
+    expect(data).toMatchObject({ title: "Detroit Jacket Y2K Vintage Archive Workwear Gr. L", price: "22", aiError: null, condition: "Sehr gut", brand: null });
+    expect(data.description).not.toMatch(/carhartt|original/i);
     expect(data.description).toContain("• Breite: 50 cm");
     const after = (await request(app).get(`/api/archive/${id}`)).body;
     expect(after.item).toMatchObject({ price_cents: 2200, price_confirmed: 1, category: "Herren > Jacken", measurements: "50 breit 67 lang" });
     expect(after.photos.map((p: { id: number }) => p.id)).toEqual(before.map((p: { id: number }) => p.id)); // order untouched
 
-    // Next upload (e.g. reupload): written fresh again.
-    await localAssistSource.load({ itemId: id, accountId });
+    // Next upload with the brand switch on: brand in title, description and Vinted's brand field.
+    await request(app).patch(`/api/archive/${id}`).send({ mention_brand: true });
+    const withBrand = await localAssistSource.load({ itemId: id, accountId });
     expect(vi.mocked(generateListing).mock.calls.length).toBe(2);
+    expect(vi.mocked(generateListing).mock.calls.at(-1)![1]).toMatchObject({ mentionBrand: true });
+    expect(withBrand).toMatchObject({ title: expect.stringMatching(/^Carhartt Detroit Jacket/), brand: "Carhartt" });
+    expect(withBrand.description).toContain("👕 Marke: Carhartt");
+    expect(withBrand.description).not.toMatch(/original/i); // never, also with the brand
+  });
+
+  it("matches the lines of a measurements file to the photo groups; doubtful ones are left to the seller", async () => {
+    const { matchLinesToGroups } = await import("../src/modules/listings/ai.js");
+    const res = await request(app).post("/api/listings/match-lines")
+      .attach("photos", await portrait(), "a.jpg").attach("photos", await portrait(), "b.jpg").attach("photos", await portrait(), "c.jpg")
+      .field("groups", JSON.stringify([2, 1])).field("lines", JSON.stringify(["Hoodie schwarz 56 breit 67 lang", "Weste navy 50 breit 60 lang"]));
+    expect(res.status).toBe(200);
+    expect(vi.mocked(matchLinesToGroups).mock.calls[0]![0].map((g) => g.length)).toEqual([2, 1]); // previews per group
+    expect(res.body.assignments).toEqual([{ article: 1, line: 2, sure: false }, { article: 2, line: 2, sure: false }]); // same line twice → ask
+    expect(res.body.lines[0]).toMatchObject({ line: 1, measurements: "Breite 56 cm, Länge 67 cm" });
   });
 });

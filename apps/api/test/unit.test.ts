@@ -102,6 +102,7 @@ describe("brand rules and measurements", async () => {
     expect(parseMeasurements("50 breit 67 lang")).toEqual({ width: 50, length: 67 });
     expect(parseMeasurements("57breit 70lang")).toEqual({ width: 57, length: 70 });
     expect(parseMeasurements("50breit 61 lang")).toEqual({ width: 50, length: 61 });
+    expect(parseMeasurements("Hoodie schwarz Hollister 56 breit 67 lang")).toEqual({ width: 56, length: 67 });
   });
 });
 
@@ -216,5 +217,36 @@ describe("category wording", () => {
     const { parcelSize } = await import("../src/modules/listings/brandRules.js");
     expect(parcelSize("Groß")).toBe("Mittel");
     expect(parcelSize("klein")).toBe("Klein");
+  });
+});
+
+describe("measurements file", () => {
+  it("never trusts doubtful assignments", async () => {
+    const { checkLineMatch } = await import("../src/modules/listings/ai.js");
+    const r = checkLineMatch({
+      assignments: [{ article: 1, line: 1, sure: true }, { article: 2, line: 2, sure: true }, { article: 3, line: 2, sure: true }, { article: 4, line: 9, sure: true }],
+      lines: [],
+    }, 5, 3);
+    expect(r.assignments).toEqual([
+      { article: 1, line: 1, sure: true },
+      { article: 2, line: 2, sure: false }, // line 2 claimed twice
+      { article: 3, line: 2, sure: false },
+      { article: 4, line: null, sure: false }, // no such line
+      { article: 5, line: null, sure: false }, // the AI forgot it
+    ]);
+  });
+});
+
+describe("texts never claim 'original'; brand only with the switch", () => {
+  it("scrubs the AI's texts", async () => {
+    const { scrubSuggestion } = await import("../src/modules/listings/ai.js");
+    const s = { title: "Originale Hollister Zip Hoodie Navy Y2K", pitch: "100% original Hollister Qualität, authentisch und bereit. 🚀",
+      highlights: ["Hollister Logo-Stick", "Großer Backprint"], hashtags: ["#hollister", "#hollisterhoodie", "#y2k", "#original", "#vintage"] };
+    const off = scrubSuggestion(s, { mentionBrand: false, brands: ["Hollister"] });
+    expect(off).toMatchObject({ title: "Zip Hoodie Navy Y2K", pitch: "Qualität, und bereit. 🚀", highlights: ["Logo-Stick", "Großer Backprint"], hashtags: ["#y2k", "#vintage"] });
+    const on = scrubSuggestion(s, { mentionBrand: true, brands: ["Hollister"] });
+    expect(on.title).toBe("Hollister Zip Hoodie Navy Y2K");
+    expect(on.hashtags).toEqual(["#hollister", "#hollisterhoodie", "#y2k", "#vintage"]);
+    expect(JSON.stringify(on)).not.toMatch(/original|authentisch/i);
   });
 });

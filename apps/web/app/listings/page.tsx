@@ -227,7 +227,7 @@ function DraftsTab({ later = false }: { later?: boolean }) {
       {!!data?.length && (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th></th><th></th><th>Titel</th><th>Marke / Größe</th><th className="num">Preis</th><th className="num">Fotos</th><th></th></tr></thead>
+            <thead><tr><th></th><th></th><th>Titel</th><th>Marke / Größe</th><th title="Marke in Titel und Beschreibung nennen – standardmäßig aus, nach dem Hochladen wieder aus">Marke nennen</th><th className="num">Preis</th><th className="num">Fotos</th><th></th></tr></thead>
             <tbody>
               {data.map((d) => {
                 const ready = !!d.price_confirmed && d.price_cents !== null && !!d.title && (d.photo_count ?? 0) > 0;
@@ -238,6 +238,10 @@ function DraftsTab({ later = false }: { later?: boolean }) {
                     <td><Link href={`/archive/${d.id}`}>{d.title}</Link>{!ready && <div className="small" style={{ color: "var(--warn)" }}>
                       {!(d.photo_count ?? 0) ? "Foto fehlt" : d.price_suggested_cents && !d.price_confirmed ? "Preis eintippen (Enter = Vorschlag)" : "Preis fehlt"}</div>}</td>
                     <td>{[d.brand, d.size].filter(Boolean).join(" · ") || "–"}</td>
+                    <td><label className="row small" style={{ gap: 4, flexWrap: "nowrap" }} title="An = Marke darf in Titel, Beschreibung und Hashtags stehen (nur für den nächsten Upload)">
+                      <input type="checkbox" checked={!!d.mention_brand} onChange={(e) => api(`/archive/${d.id}`, { method: "PATCH", json: { mention_brand: e.target.checked } }).then(reload).catch((err) => toast({ kind: "error", text: err.message }))} />
+                      {d.mention_brand ? "an" : "aus"}
+                    </label></td>
                     <td className="num"><PriceCell item={d} onChange={reload} /></td>
                     <td className="num">{d.photo_count}</td>
                     <td><div className="row" style={{ justifyContent: "flex-end", flexWrap: "nowrap" }}>

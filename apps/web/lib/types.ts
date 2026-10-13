@@ -7,7 +7,7 @@ export interface Account {
 
 export interface Item {
   id: number; title: string; description: string; category: string | null; brand: string | null; size: string | null;
-  condition: string | null; color: string | null; material: string | null; measurements: string | null; parcel_size?: string | null;
+  condition: string | null; color: string | null; material: string | null; measurements: string | null; parcel_size?: string | null; mention_brand?: number;
   price_cents: number | null; currency: string; purchase_price_cents: number | null; status: string; notes: string | null;
   price_suggested_cents: number | null; price_suggestion_reason: string | null; price_confirmed: number;
   created_at: string; updated_at: string;

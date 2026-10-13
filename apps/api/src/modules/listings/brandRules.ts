@@ -79,12 +79,11 @@ export async function applyBrandRules(): Promise<number> {
 export function parseMeasurements(text: string | null | undefined): { width: number | null; length: number | null } {
   const t = (text ?? "").toLowerCase();
   const num = (re: RegExp) => { const m = t.match(re); return m ? Number(m[1]!.replace(",", ".")) : null; };
-  // Number first, as in folder names like "50 breit 67 lang" or "57breit 70lang".
-  if (/^\s*\d/.test(t)) {
-    const w = num(/(\d+(?:[.,]\d+)?)\s*(?:cm)?\s*(?:breite?|weite|schulter\w*|achsel\w*|b\b)/);
-    const l = num(/(\d+(?:[.,]\d+)?)\s*(?:cm)?\s*(?:lang|l(?:ä|ae)nge|l\b)/);
-    if (w !== null || l !== null) return { width: w, length: l };
-  }
+  // Number before the word, as in "50 breit 67 lang", "57breit 70lang" or "Hoodie schwarz 56 breit 67 lang".
+  // (Only the adjectives "breit"/"lang" or b/l – "43 Länge" in "Breite 43 Länge 65" is label-first.)
+  const w = num(/(\d+(?:[.,]\d+)?)\s*(?:cm)?\s*(?:breit|b)(?![a-zäöüß\d])/);
+  const l = num(/(\d+(?:[.,]\d+)?)\s*(?:cm)?\s*(?:lang|l)(?![a-zäöüß\d])/);
+  if (w !== null || l !== null) return { width: w, length: l };
   let width = num(/(?:breite|schulter\w*|achsel\w*|weite|b)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/);
   let length = num(/(?:l(?:ä|ae)nge|l)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/);
   if (width === null || length === null) {

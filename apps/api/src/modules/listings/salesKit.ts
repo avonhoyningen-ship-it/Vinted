@@ -3,7 +3,7 @@ import { getSetting } from "../../lib/settings.js";
 import { readPhoto, rotateStoredPhoto } from "../../storage/photos.js";
 import { getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
 import { confirmPrice, examplesForPrompt, refreshSuggestion } from "../pricing/engine.js";
-import { aiEnabled, composeDescription, detectOrientations, generateListing, normalizeOrder } from "./ai.js";
+import { aiEnabled, composeDescription, detectOrientations, generateListing, normalizeOrder, scrubSuggestion } from "./ai.js";
 import { loadRules, ruleBrand, ruleParcel } from "./brandRules.js";
 
 /** Sales-kit AI on stored items: on demand (✨ KI) and fresh at every upload. */
@@ -13,17 +13,20 @@ export async function runAi(itemId: number, hints: string | undefined, keep: Par
   const item = await getItem(itemId);
   if (orient) await orientPhotos(itemId);
   const photos = await listPhotos(itemId);
-  const s = await generateListing(photos, {
+  const mentionBrand = !!item.mention_brand;
+  const rules = await loadRules();
+  const raw = await generateListing(photos, {
     hints, measurements: item.measurements, language: await getSetting("ai.language"), stylePrompt: await getSetting("ai.listingPrompt"),
-    priceExamples: await examplesForPrompt(item),
+    priceExamples: await examplesForPrompt(item), mentionBrand,
   });
+  // Never "original"; brand switch off → no brand name anywhere (also the one from the label or a brand rule).
+  const s = scrubSuggestion(raw, { mentionBrand, brands: [raw.brand, item.brand] });
   // Outfit shot → article only → details → tag (as decided by the model).
   const sent = photos.slice(0, 20);
   const order = normalizeOrder(s.photo_order ?? [], sent.length).map((i) => sent[i]!.id);
   if (reorder) await reorderPhotos(itemId, [...order, ...photos.slice(20).map((p) => p.id)]);
-  const description = composeDescription(s, { measurements: item.measurements, closing: await getSetting("ai.closingText") });
+  const description = composeDescription(s, { measurements: item.measurements, closing: await getSetting("ai.closingText"), mentionBrand });
   if (apply) {
-    const rules = await loadRules();
     await updateItem(itemId, {
       title: keep.title || s.title.slice(0, 200),
       description: keep.description || description.slice(0, 5000),

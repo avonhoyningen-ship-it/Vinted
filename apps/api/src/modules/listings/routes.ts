@@ -7,7 +7,7 @@ import { upload, uploadThumbs } from "../../lib/upload.js";
 import { readPhoto, rotateStoredPhoto, storePhoto } from "../../storage/photos.js";
 import { addPhoto, createItem, getItem, itemInput, listPhotos, reorderPhotos, replacePhotoFile, updateItem } from "../archive/repo.js";
 import { confirmPrice, refreshSuggestion } from "../pricing/engine.js";
-import { aiEnabled, detectOrientations, groupingThumb, groupPhotosInOrder, type Rotation } from "./ai.js";
+import { aiEnabled, detectOrientations, groupingThumb, groupPhotosInOrder, matchLinesToGroups, type Rotation } from "./ai.js";
 import { orientPhotos, runAi } from "./salesKit.js";
 import { mergeIfKnown } from "../duplicates/merge.js";
 import { cancelQueueEntry, enqueue, enqueueInput, listQueue, rescheduleQueueEntry } from "./queue.js";
@@ -132,6 +132,26 @@ listingsRouter.post("/group-photos", uploadThumbs.array("photos", 600), h(async 
   }
   const [groups, rotations] = await Promise.all([groupPhotosInOrder(thumbs), detectOrientations(thumbs)]);
   res.json({ groups, rotations });
+}));
+
+/**
+ * Measurements file (.txt, one line per article) → which line belongs to which photo group.
+ * Fields: `photos` (1–2 small previews per group, in order), `groups` (JSON: number of previews per group), `lines` (JSON).
+ */
+listingsRouter.post("/match-lines", uploadThumbs.array("photos", 400), h(async (req, res) => {
+  if (!aiEnabled()) throw new HttpError(503, "ANTHROPIC_API_KEY ist nicht gesetzt – die Zuordnung braucht die KI");
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  const counts = z.array(z.number().int().min(0).max(4)).min(1).max(200).parse(JSON.parse(String(req.body.groups ?? "[]")));
+  const lines = z.array(z.string().trim().min(1).max(500)).min(1).max(300).parse(JSON.parse(String(req.body.lines ?? "[]")));
+  const groups: Buffer[][] = [];
+  let at = 0;
+  for (const n of counts) {
+    const g = [];
+    for (const f of files.slice(at, at + n)) g.push(await groupingThumb(f.buffer));
+    groups.push(g);
+    at += n;
+  }
+  res.json(await matchLinesToGroups(groups, lines));
 }));
 
 const aiInput = z.object({ apply: z.boolean().default(false), hints: z.string().max(1000).optional() });

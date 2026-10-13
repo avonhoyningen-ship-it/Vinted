@@ -373,4 +373,10 @@ CREATE TABLE outreach_log (
     // Set when the real Vinted profile didn't show the listing: the sync must not mark it active again.
     sql: `ALTER TABLE listings ADD COLUMN profile_missing_at TEXT;`,
   },
+  {
+    id: 11,
+    name: "item_mention_brand",
+    // Seller's switch per article: mention the brand in title/description (default off).
+    sql: `ALTER TABLE items ADD COLUMN mention_brand INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];

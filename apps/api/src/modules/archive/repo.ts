@@ -28,6 +28,7 @@ export interface ItemRow {
   price_confirmed: number;
   status: (typeof ITEM_STATUSES)[number];
   notes: string | null;
+  mention_brand?: number;
   created_at: string;
   updated_at: string;
 }
@@ -86,6 +87,8 @@ export const itemInput = z.object({
   currency: z.string().length(3).default("EUR"),
   purchase_price_cents: z.number().int().min(0).nullable().optional(),
   notes: nullableText(2000),
+  /** Seller's switch: mention the brand in title and description (off unless switched on for this upload). */
+  mention_brand: z.union([z.boolean(), z.number()]).transform((v) => (v ? 1 : 0)).optional(),
 });
 export const itemPatch = itemInput.partial().extend({
   status: z.enum(["draft", "archived"]).optional(), // other statuses are derived from listings
@@ -94,7 +97,7 @@ export type ItemInput = z.infer<typeof itemInput>;
 
 const ITEM_FIELDS = [
   "title", "description", "category", "brand", "size", "condition", "color", "material",
-  "measurements", "parcel_size", "price_cents", "currency", "purchase_price_cents", "notes",
+  "measurements", "parcel_size", "price_cents", "currency", "purchase_price_cents", "notes", "mention_brand",
 ] as const;
 
 export async function getItem(id: number): Promise<ItemRow> {
@@ -185,7 +188,8 @@ export async function createListing(data: {
     // Optional fields left undefined keep their defaults (undefined can't be bound).
     ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)),
   });
-  await db.run("UPDATE items SET later = 0 WHERE id = ?", [data.item_id]); // uploaded → no longer "Später"
+  // Uploaded → no longer "Später"; the brand switch goes back to off for the next upload.
+  await db.run("UPDATE items SET later = 0, mention_brand = 0 WHERE id = ?", [data.item_id]);
   await recomputeItemStatus(data.item_id);
   return getListing(id);
 }

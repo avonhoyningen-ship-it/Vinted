@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS items (
   created_at TEXT NOT NULL DEFAULT app_now(),
   updated_at TEXT NOT NULL DEFAULT app_now()
 );
+ALTER TABLE items ADD COLUMN IF NOT EXISTS mention_brand INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_items_user_status ON items(user_id, status);
 
 CREATE TABLE IF NOT EXISTS item_photos (

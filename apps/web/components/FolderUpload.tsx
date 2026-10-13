@@ -6,8 +6,26 @@ import { useToast } from "./Toasts";
 const MAX_PHOTOS = 20; // Vinted allows at most 20 photos per listing
 const isImage = (f: File) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|heic|heif|avif)$/i.test(f.name);
 const byName = (a: File, b: File) => a.name.localeCompare(b.name, "de", { numeric: true });
+const isText = (f: File) => f.type === "text/plain" || /\.txt$/i.test(f.name);
 
-interface Group { key: string; files: File[]; measurements: string; hint: string }
+/** Lines of the measurements file: one article per line ("schwarzer Hoodie 56 breit 67 lang"). */
+async function readLines(files: File[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const f of files) {
+    for (const l of (await f.text()).replace(/^\uFEFF/, "").split(/\r?\n/)) if (l.trim()) out.push(l.trim().slice(0, 500));
+  }
+  return out;
+}
+
+interface Group {
+  key: string; files: File[]; measurements: string; hint: string;
+  /** Line of the measurements file (1-based) and whether the seller still has to confirm it. */
+  line?: number | null; check?: boolean;
+}
+interface LineMatch {
+  assignments: { article: number; line: number | null; sure: boolean }[];
+  lines: { line: number; article: string; measurements: string | null }[];
+}
 type Mode = "perFolder" | "grouped";
 type Rotation = 0 | 90 | 180 | 270;
 
@@ -91,6 +109,10 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const [rot, setRot] = useState<Map<File, Rotation>>(new Map());
   const turn = (f: File) => setRot(new Map(rot).set(f, (((rot.get(f) ?? 0) + 90) % 360) as Rotation));
   const [results, setResults] = useState<{ key: string; label: string; ok: boolean; text: string }[]>([]);
+  // Measurements file (.txt): its lines and what the AI read from them.
+  const [lines, setLines] = useState<string[]>([]);
+  const [lineInfo, setLineInfo] = useState<LineMatch["lines"]>([]);
+  const txtInput = useRef<HTMLInputElement>(null);
 
   const allFiles = useMemo(() => [...folders.values()].flat(), [folders]);
   const urls = useMemo(() => new Map(allFiles.map((f) => [f, URL.createObjectURL(f)])), [allFiles]);
@@ -99,6 +121,8 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const [over, setOver] = useState(false);
 
   function pick(picked: PickedFile[]) {
+    const texts = picked.filter((p) => isText(p.file)).map((p) => p.file);
+    if (texts.length) void readLines(texts).then((l) => { setLines(l); setLineInfo([]); });
     const map = new Map<string, File[]>();
     for (const { file: f, path } of picked.filter((p) => isImage(p.file))) {
       const parts = path.split("/");
@@ -150,6 +174,51 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   }
 
   const update = (i: number, patch: Partial<Group>) => setGroups(groups.map((g, j) => (j === i ? { ...g, ...patch } : g)));
+
+  /** Takes a line of the measurements file for an article (measurements + what kind of article it is as hint). */
+  const lineFields = (n: number | null, info: LineMatch["lines"] = lineInfo): Partial<Group> => {
+    if (!n) return { line: null, measurements: "", hint: "" };
+    const meta = info.find((x) => x.line === n);
+    return { line: n, measurements: meta?.measurements ?? lines[n - 1]!, hint: lines[n - 1]! };
+  };
+
+  /** AI: which line of the measurements file belongs to which article – unclear ones are marked for the seller. */
+  async function matchLines(current = groups) {
+    if (!lines.length || !current.length) return;
+    setProgress(`KI ordnet ${lines.length} Zeilen der Maß-Datei den ${current.length} Artikeln zu…`);
+    try {
+      const fd = new FormData();
+      const counts: number[] = [];
+      for (const g of current) {
+        const pics = g.files.slice(0, 2);
+        counts.push(pics.length);
+        for (const f of pics) fd.append("photos", await thumbnail(f), f.name);
+      }
+      fd.append("groups", JSON.stringify(counts));
+      fd.append("lines", JSON.stringify(lines));
+      const r = await api<LineMatch>("/listings/match-lines", { method: "POST", body: fd });
+      setLineInfo(r.lines);
+      setGroups(current.map((g, i) => {
+        const a = r.assignments[i];
+        return { ...g, ...lineFields(a?.line ?? null, r.lines), check: !a?.sure };
+      }));
+      const unsure = r.assignments.filter((a) => !a.sure).length;
+      toast({ kind: unsure ? "error" : "info", text: unsure ? `${unsure} Artikel bitte prüfen – die KI ist sich dort nicht sicher` : "Alle Maße zugeordnet" });
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    } finally {
+      setProgress(null);
+    }
+  }
+  const toCheck = groups.filter((g) => g.check).length;
+  // As soon as there are articles and a measurements file: match them once automatically.
+  const matched = useRef("");
+  useEffect(() => {
+    const sig = `${groups.map((g) => g.key).join(",")}|${lines.length}`;
+    if (!aiEnabled || !groups.length || !lines.length || progress || matched.current === sig || groups.some((g) => g.line !== undefined)) return;
+    matched.current = sig;
+    void matchLines(groups);
+  }, [groups, lines]); // eslint-disable-line react-hooks/exhaustive-deps
   const mergeWithPrevious = (i: number) =>
     setGroups(groups.flatMap((g, j) => (j === i ? [] : j === i - 1 ? [{ ...g, files: [...g.files, ...groups[i]!.files] }] : [g])));
   const splitAt = (i: number, photo: number) =>
@@ -233,6 +302,13 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
               <input value={folderMeasurements} onChange={(e) => setFolderMeasurements(e.target.value)} placeholder="z. B. Länge 70 cm, Breite 55 cm" />
             </label>
             <label className="field">Größe<input value={folderSize} onChange={(e) => setFolderSize(e.target.value)} placeholder="z. B. S–M" /></label>
+            <div className="row span-all">
+          <input ref={txtInput} type="file" hidden accept=".txt,text/plain" onChange={async (e) => { const f = [...(e.target.files ?? [])]; if (f.length) { setLines(await readLines(f)); setLineInfo([]); } e.target.value = ""; }} />
+          <button className="btn small" type="button" onClick={() => txtInput.current?.click()}>📄 Maß-Datei (.txt) {lines.length ? "ersetzen" : "hinzufügen"}</button>
+          {lines.length
+            ? <span className="small muted">{lines.length} Zeilen geladen{!!groups.length && " – "}{!!groups.length && <button className="btn small primary" type="button" disabled={!!progress || !aiEnabled} onClick={() => matchLines()}>📄 Maße zuordnen</button>}</span>
+            : <span className="small muted">Eine Zeile pro Artikel, z. B. „schwarzer Hoodie 56 breit 67 lang“ – liegt die .txt im Ordner, wird sie automatisch erkannt.</span>}
+        </div>
             <label className="field span-all">Weitere Details (Zustand, Passform, Besonderheiten, Wunsch-Hashtags)
               <input value={hints} onChange={(e) => setHints(e.target.value)} placeholder="z. B. Zustand sehr gut, fällt normal aus, #bandshirt" />
             </label>
@@ -273,6 +349,19 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
                     </div>
                   ))}
                 </div>
+                {!!lines.length && (
+                  <div className={g.check ? "alert stack" : "row"} style={{ gap: 6 }}>
+                    {g.check && <strong>⚠️ Bitte prüfen: {g.line ? "passt diese Zeile zu den Fotos?" : "welche Zeile gehört zu diesem Artikel?"}</strong>}
+                    <div className="row" style={{ gap: 6 }}>
+                      <select value={g.line ?? ""} onChange={(e) => update(i, { ...lineFields(e.target.value ? Number(e.target.value) : null), check: false })} style={{ maxWidth: 520 }}>
+                        <option value="">— keine Zeile —</option>
+                        {lines.map((l, n) => <option key={n} value={n + 1}>{n + 1}: {l}</option>)}
+                      </select>
+                      {g.check && g.line && <button className="btn small primary" type="button" onClick={() => update(i, { check: false })}>✓ Passt</button>}
+                      {g.check && !g.line && <button className="btn small" type="button" onClick={() => update(i, { check: false })}>Ohne Zeile weiter</button>}
+                    </div>
+                  </div>
+                )}
                 <div className="form-grid">
                   <label className="field">Maße (nur falls abweichend)<input value={g.measurements} placeholder={folderMeasurements ? `wie Ordner: ${folderMeasurements}` : "z. B. Länge 70 cm, Breite 55 cm"} onChange={(e) => update(i, { measurements: e.target.value })} /></label>
                   <label className="field">Hinweis für diesen Artikel<input value={g.hint} placeholder="z. B. kleiner Fleck am Ärmel" onChange={(e) => update(i, { hint: e.target.value })} /></label>
@@ -288,7 +377,9 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
           <div className="small muted">Beim Hochladen werden alle Foto-Metadaten (GPS-Standort, Handymodell, Aufnahmezeit) entfernt.</div>
           <div className="row">
             <div className="spacer" />
-            <button className="btn primary" disabled={!!progress} onClick={create}>{groups.length} Entwürfe erstellen</button>
+            <button className="btn primary" disabled={!!progress || toCheck > 0} onClick={create}>
+              {toCheck ? `Erst ${toCheck} unsichere Zuordnung${toCheck === 1 ? "" : "en"} prüfen` : `${groups.length} Entwürfe erstellen`}
+            </button>
           </div>
         </>
       )}

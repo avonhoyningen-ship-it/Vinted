@@ -18,7 +18,9 @@ Titel:
 Beschreibung (wird automatisch so aufgebaut – du lieferst nur die Felder):
 - DETAILS: Marke, Größe, Material, Farbe, Zustand, Passform ("fit") und 0–3 Besonderheiten ("highlights", z. B. "Großer Backprint").
 - MAẞE kommen vom Verkäufer.
-- "pitch": 1–2 kurze Sätze mit 1–2 Trendbegriffen, die Lust auf den Artikel machen, mit Emoji am Ende – z. B. "Originale Y2K Streetwear-Qualität, geprüft und bereit für neue Abenteuer. 🚀"
+- "pitch": 1–2 kurze Sätze mit 1–2 Trendbegriffen, die Lust auf den Artikel machen, mit Emoji am Ende – z. B. "Y2K Streetwear-Piece, geprüft und bereit für neue Abenteuer. 🚀"
+- Nie schreiben, dass etwas „original“, „authentisch“ oder „echt“ ist.
+- Die Marke nur nennen, wenn der Verkäufer den Marken-Schalter eingeschaltet hat (steht in den Hinweisen).
 - Je weniger der Käufer nachfragen muss, desto leichter entscheidet er sich: Passform, Material und Zustand angeben, soweit erkennbar.
 
 Hashtags:
