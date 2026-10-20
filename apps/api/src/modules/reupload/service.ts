@@ -38,6 +38,16 @@ async function deleteForReupload(listingId: number) {
   return { listing, message: r.message };
 }
 
+/** Sold elsewhere: delete this Vinted listing (Chrome / PC helper) and mark it removed. */
+export async function deleteOnVinted(listingId: number): Promise<{ ok: boolean; message: string }> {
+  const listing = await getListing(listingId);
+  if (listing.status !== "active" || !listing.vinted_item_id) return { ok: true, message: "nicht online" };
+  const account = await getAccount(listing.account_id);
+  const r = await deleter({ vintedItemId: listing.vinted_item_id, domain: account.domain, chromeUrl: chromeUrlFor(account) });
+  if (r.ok) await endListing(listing.id, "removed");
+  return r;
+}
+
 export async function reuploadListing(listingId: number) {
   const { listing, message } = await deleteForReupload(listingId);
   const assist = await launcher([listing.item_id], listing.account_id);

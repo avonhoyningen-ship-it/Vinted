@@ -379,4 +379,34 @@ CREATE TABLE outreach_log (
     // Seller's switch per article: mention the brand in title/description (default off).
     sql: `ALTER TABLE items ADD COLUMN mention_brand INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    id: 12,
+    name: "marketplaces",
+    // Other selling platforms (eBay first): login/settings per platform and the listings there.
+    sql: `
+CREATE TABLE marketplace_auth (
+  platform TEXT PRIMARY KEY,
+  data_encrypted TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT ${NOW}
+);
+CREATE TABLE marketplace_listings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL,
+  sku TEXT,
+  offer_id TEXT,
+  external_id TEXT,
+  url TEXT,
+  price_cents INTEGER,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','sold','ended','failed')),
+  error TEXT,
+  listed_at TEXT NOT NULL DEFAULT ${NOW},
+  ended_at TEXT,
+  sold_at TEXT,
+  sold_price_cents INTEGER,
+  order_id TEXT,
+  UNIQUE (platform, external_id)
+);
+CREATE INDEX idx_marketplace_item ON marketplace_listings(item_id, status);`,
+  },
 ];

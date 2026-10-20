@@ -317,6 +317,28 @@ const REUPLOAD_LABEL = { queued: "wartet", deleting: "lösche…", deleted: "✓
 function ActiveTab() {
   const toast = useToast();
   const { data, error, reload } = useApi<Listing[]>("/listings");
+  const ebayStatus = useApi<{ connected: boolean }>("/ebay/status");
+  const ebayRows = useApi<{ item_id: number; status: string; url: string | null; error: string | null }[]>("/ebay/listings");
+  const onEbay = useMemo(() => {
+    const m = new Map<number, { status: string; url: string | null; error: string | null }>();
+    for (const r of [...(ebayRows.data ?? [])].reverse()) m.set(r.item_id, r); // newest wins
+    return m;
+  }, [ebayRows.data]);
+  useEffect(() => {
+    const refresh = () => { void ebayRows.reload(); };
+    window.addEventListener("dashboard-refresh", refresh);
+    return () => window.removeEventListener("dashboard-refresh", refresh);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  async function listOnEbay() {
+    const itemIds = [...new Set((data ?? []).filter((l) => selected.includes(l.id)).map((l) => l.item_id))];
+    try {
+      await api("/ebay/list", { method: "POST", json: { itemIds } });
+      toast({ kind: "info", text: `${itemIds.length} Artikel werden auf eBay eingestellt – Meldungen kommen gleich` });
+      setSelected([]);
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    }
+  }
   const [selected, setSelected] = useState<number[]>([]);
   const [confirm, setConfirm] = useState(false);
   const [status, setStatus] = useState<ReuploadStatus | null>(null);
@@ -396,6 +418,7 @@ function ActiveTab() {
             {selected.length === reuploadable.length && selected.length ? "Keine" : "Alle"}
           </button>
           <div className="spacer" />
+          {ebayStatus.data?.connected && <button className="btn" disabled={!selected.length} onClick={listOnEbay}>🛒 Auf eBay einstellen ({selected.length})</button>}
           <button className="btn primary" disabled={!selected.length || running} onClick={() => setConfirm(true)}>♻️ Re-Upload ({selected.length})</button>
         </div>
       )}
@@ -403,7 +426,7 @@ function ActiveTab() {
       {!!data?.length && (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th></th><th></th><th>Titel</th><th>Account</th><th className="num">Preis</th><th className="num">❤️</th><th className="num">👁</th><th className="num">Tage online</th><th></th></tr></thead>
+            <thead><tr><th></th><th></th><th>Titel</th><th>Account</th><th className="num">Preis</th><th className="num">❤️</th><th className="num">👁</th><th className="num">Tage online</th><th>eBay</th><th></th></tr></thead>
             <tbody>
               {data.map((l) => (
                 <tr key={l.id}>
@@ -415,6 +438,13 @@ function ActiveTab() {
                   <td className="num">{l.favourites}</td>
                   <td className="num">{l.views}</td>
                   <td className="num">{l.days_online}</td>
+                  <td>{(() => {
+                    const e = onEbay.get(l.item_id);
+                    if (!e) return <span className="muted small">–</span>;
+                    if (e.status === "active") return <a className="badge good" href={e.url ?? "#"} target="_blank" rel="noreferrer">online ↗</a>;
+                    if (e.status === "failed") return <span className="badge bad" title={e.error ?? ""}>Fehler</span>;
+                    return <span className="badge">{e.status === "sold" ? "verkauft" : "beendet"}</span>;
+                  })()}</td>
                   <td>{l.url && <a href={l.url} target="_blank" rel="noreferrer">Vinted ↗</a>}</td>
                 </tr>
               ))}

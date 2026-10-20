@@ -60,6 +60,9 @@ export async function linkUploadedListing(job: Job, url: string) {
     description: item.description, price_cents: price ?? null, currency: item.currency, listed_at: nowIso(),
   });
   eventBus.publish({ type: "published", accountId: job.accountId, itemId: item.id, title: item.title });
+  // Online on Vinted → also on eBay (if connected and "automatisch" is on).
+  const { autoListOnEbay } = await import("../marketplaces/ebay/auto.js");
+  void autoListOnEbay(item.id);
 }
 
 /** Local dashboard: items from this PC's database, photos from the local folder. */

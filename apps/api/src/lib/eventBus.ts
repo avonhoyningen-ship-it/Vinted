@@ -11,7 +11,8 @@ export type DashboardEvent =
   | { type: "account_status"; accountId: number; status: string; error?: string | null }
   | { type: "assist"; status: AssistStatus }
   | { type: "reprice"; status: RepriceStatus }
-  | { type: "duplicate"; accountId: number; accountName: string; titles: string[]; count: number };
+  | { type: "duplicate"; accountId: number; accountName: string; titles: string[]; count: number }
+  | { type: "marketplace"; platform: string; itemId: number; title: string; state: "listed" | "ended" | "failed"; url: string | null; message: string | null };
 
 /** Progress of a "Preis senken" run. */
 export interface RepriceStatus {

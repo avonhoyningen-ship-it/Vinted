@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
 import { useToast } from "@/components/Toasts";
+import { EbayCard } from "@/components/EbayCard";
 import { ErrorBox, PageHead } from "@/components/ui";
 import { api } from "@/lib/api";
 import { playSound, SOUND_PRESETS, type SoundPreset } from "@/lib/sounds";
@@ -34,6 +35,7 @@ export default function SettingsPage() {
     <>
       <PageHead title="Einstellungen" />
       <RemoteAccessCard />
+      <EbayCard />
       <div className="grid grid-2">
         <div className="card stack">
           <h2>Sale-Sound & Benachrichtigungen</h2>

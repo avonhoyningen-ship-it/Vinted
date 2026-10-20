@@ -27,7 +27,7 @@ export const SYSTEM_SCOPE = "__system__";
 const SAFE_USER_ID = /^[A-Za-z0-9_-]{1,128}$/;
 
 /** Tables without an `id` column (no RETURNING id on insert). */
-const NO_ID_TABLES = new Set(["settings", "app_users"]);
+const NO_ID_TABLES = new Set(["settings", "app_users", "marketplace_auth"]);
 
 /**
  * Converts the app's SQLite-style SQL to Postgres: `?` and `@name` placeholders

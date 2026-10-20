@@ -200,6 +200,9 @@ export async function markListingSold(listingId: number, soldAt: string, priceCe
   const itemId = (await getListing(listingId)).item_id;
   await recomputeItemStatus(itemId);
   if (priceCents) await recordPriceExample(itemId, priceCents, "sold"); // real sale prices teach the most
+  // Sold on Vinted → take it off the other platforms (eBay …) so it can't be sold twice.
+  const { soldElsewhere } = await import("../marketplaces/crossDelist.js");
+  await soldElsewhere(itemId, "vinted").catch((e) => console.warn("[verkauft] Andere Plattformen:", (e as Error).message));
 }
 
 export async function endListing(listingId: number, status: "removed" | "expired" | "hidden") {
@@ -237,10 +240,15 @@ export async function recomputeItemStatus(itemId: number) {
   const queued = Number((await db.get<{ c: number }>("SELECT COUNT(*) c FROM publish_queue WHERE item_id = ? AND status IN ('pending','processing')", [itemId]))!.c);
   const total = Number(stats.total);
 
+  // Other platforms (eBay): online there counts as active, sold there as sold.
+  const mp = (await db.get<{ active: number | null; sold: number | null }>(
+    "SELECT SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) active, SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) sold FROM marketplace_listings WHERE item_id = ?", [itemId]))!;
+
   let status: string;
   if (Number(stats.active ?? 0) > 0) status = total > 1 ? "relisted" : "active";
+  else if (Number(mp.active ?? 0) > 0) status = "active";
   else if (queued > 0) status = "queued";
-  else if (stats.latest === "sold") status = "sold";
+  else if (stats.latest === "sold" || Number(mp.sold ?? 0) > 0) status = "sold";
   else if (total > 0) status = "archived";
   else status = item.status === "archived" ? "archived" : "draft";
 

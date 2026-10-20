@@ -307,6 +307,26 @@ export function checkLineMatch(m: LineMatch, articles: number, lineCount: number
   return { ...m, assignments };
 }
 
+// ---------- marketplace item specifics (e.g. eBay "Artikelmerkmale") ----------
+
+const AspectAnswer = z.object({ aspects: z.array(z.object({ name: z.string(), value: z.string().nullable() })) });
+
+/** Picks values for required item specifics from the article's data (null when it can't be known). */
+export async function chooseAspects(article: string, aspects: { name: string; values: string[] }[]): Promise<Record<string, string>> {
+  if (!aspects.length) return {};
+  const list = aspects.map((a) => `- ${a.name}${a.values.length ? ` (erlaubt: ${a.values.slice(0, 60).join(", ")})` : " (freier Text)"}`).join("\n");
+  const r = await getClient().messages.parse({
+    model: env.anthropicModel,
+    max_tokens: 2000,
+    system: "Du füllst Pflicht-Artikelmerkmale für ein eBay-Inserat (Kleidung) aus. Bei erlaubten Werten genau einen davon wählen. Nichts erfinden: was nicht aus den Angaben hervorgeht, ist null. Nie eine Marke angeben, die nicht in den Angaben steht.",
+    messages: [{ role: "user", content: `Artikel:\n${article}\n\nMerkmale:\n${list}` }],
+    output_config: { format: zodOutputFormat(AspectAnswer) },
+  });
+  const out: Record<string, string> = {};
+  for (const a of r.parsed_output?.aspects ?? []) if (a.value) out[a.name] = a.value;
+  return out;
+}
+
 /** Normalises any uploaded image into a small JPEG for grouping. */
 export async function groupingThumb(input: Buffer): Promise<Buffer> {
   return sharp(input).rotate().resize({ width: 512, height: 512, fit: "inside" }).jpeg({ quality: 70 }).toBuffer();

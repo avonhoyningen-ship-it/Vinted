@@ -74,6 +74,12 @@ export function SaleNotifier() {
         window.dispatchEvent(new CustomEvent("reprice", { detail: status }));
         if (status.state === "done") window.dispatchEvent(new CustomEvent("dashboard-refresh"));
       });
+      es.addEventListener("marketplace", (ev) => {
+        const e = JSON.parse((ev as MessageEvent).data);
+        const label = e.state === "listed" ? (e.title ? `🛒 Auf ${e.platform} eingestellt: ${e.title}` : `🛒 ${e.message}`) : e.state === "ended" ? `🛒 ${e.platform}: ${e.message} – ${e.title}` : `⚠️ ${e.platform}: ${e.title ? `${e.title} – ` : ""}${e.message}`;
+        toast({ kind: e.state === "failed" ? "error" : "info", text: label });
+        window.dispatchEvent(new CustomEvent("dashboard-refresh"));
+      });
       es.addEventListener("duplicate", (ev) => {
         const e = JSON.parse((ev as MessageEvent).data);
         const text = `„${e.titles[0]}“ ist ${e.count}× online auf ${e.accountName}`;
