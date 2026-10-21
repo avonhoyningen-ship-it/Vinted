@@ -8,11 +8,37 @@ const isImage = (f: File) => f.type.startsWith("image/") || /\.(jpe?g|png|webp|h
 const byName = (a: File, b: File) => a.name.localeCompare(b.name, "de", { numeric: true });
 const isText = (f: File) => f.type === "text/plain" || /\.txt$/i.test(f.name);
 
-/** Lines of the measurements file: one article per line ("schwarzer Hoodie 56 breit 67 lang"). */
-async function readLines(files: File[]): Promise<string[]> {
-  const out: string[] = [];
+/** An entry of the measurements file: what the article is, and its measurements (often on the lines below). */
+interface Entry { article: string; measurements: string }
+const entryText = (e: Entry) => (e.article && e.measurements ? `${e.article} – Maße: ${e.measurements}` : e.article || e.measurements);
+
+const MEASURE_WORDS = /(?<![a-zäöüß])(?:cm|ca|circa|x|b|l|breit|breite|lang|l(?:ä|ae)nge|gesamtl(?:ä|ae)nge|r(?:ü|ue)ckenl(?:ä|ae)nge|achsel|achseln|zu|schulter|schulterbreite|brust|brustumfang|bund|bundweite|taille|h(?:ü|ue)fte|weite|bein|beinweite|beinl(?:ä|ae)nge|innenbein|innenbeinl(?:ä|ae)nge|(?:ä|ae)rmel|(?:ä|ae)rmell(?:ä|ae)nge|arm|saum|saumweite|oberschenkel|leibh(?:ö|oe)he|kragen|umfang|von|bis|oben|unten|vorne|hinten|liegend|flach|gemessen|ma(?:ß|ss)e)(?![a-zäöüß])/gi;
+/** A line that holds only measurements ("Breite 56 cm", "56 x 67", "Länge: 70cm") – no article words. */
+const isMeasureLine = (l: string) => /\d/.test(l) && !/[a-zäöüß]{2,}/i.test(l.replace(MEASURE_WORDS, " ").replace(/\d+(?:[.,]\d+)?/g, " "));
+/** Inline measurements in an article line ("schwarzer Hoodie 56 breit 67 lang"). */
+const hasInlineMeasures = (l: string) => /\d+(?:[.,]\d+)?\s*(?:cm|breit|lang|b\b|l\b)|(?:breite|l(?:ä|ae)nge|bund|achsel\w*)\s*:?\s*\d|\d\s*[x×]\s*\d/i.test(l);
+
+/**
+ * Measurements file → articles. Either one article per line ("schwarzer Hoodie 56 breit 67 lang")
+ * or the article on one line and its measurements in cm on the line(s) below.
+ */
+async function readMeasureFile(files: File[]): Promise<Entry[]> {
+  const out: Entry[] = [];
   for (const f of files) {
-    for (const l of (await f.text()).replace(/^\uFEFF/, "").split(/\r?\n/)) if (l.trim()) out.push(l.trim().slice(0, 500));
+    let cur: Entry | null = null;
+    for (const raw of (await f.text()).replace(/^\uFEFF/, "").split(/\r?\n/)) {
+      const l = raw.trim().replace(/^[-•*–]\s*/, "").slice(0, 300);
+      if (!l) continue;
+      if (isMeasureLine(l) && cur) {
+        cur.measurements = [cur.measurements, l].filter(Boolean).join(", ").slice(0, 400);
+      } else if (isMeasureLine(l)) {
+        cur = { article: "", measurements: l };
+        out.push(cur);
+      } else {
+        cur = { article: l, measurements: hasInlineMeasures(l) ? l : "" };
+        out.push(cur);
+      }
+    }
   }
   return out;
 }
@@ -110,7 +136,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const turn = (f: File) => setRot(new Map(rot).set(f, (((rot.get(f) ?? 0) + 90) % 360) as Rotation));
   const [results, setResults] = useState<{ key: string; label: string; ok: boolean; text: string }[]>([]);
   // Measurements file (.txt): its lines and what the AI read from them.
-  const [lines, setLines] = useState<string[]>([]);
+  const [lines, setLines] = useState<Entry[]>([]);
   const [lineInfo, setLineInfo] = useState<LineMatch["lines"]>([]);
   const txtInput = useRef<HTMLInputElement>(null);
 
@@ -122,7 +148,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
 
   function pick(picked: PickedFile[]) {
     const texts = picked.filter((p) => isText(p.file)).map((p) => p.file);
-    if (texts.length) void readLines(texts).then((l) => { setLines(l); setLineInfo([]); });
+    if (texts.length) void readMeasureFile(texts).then((l) => { setLines(l); setLineInfo([]); });
     const map = new Map<string, File[]>();
     for (const { file: f, path } of picked.filter((p) => isImage(p.file))) {
       const parts = path.split("/");
@@ -179,13 +205,14 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
   const lineFields = (n: number | null, info: LineMatch["lines"] = lineInfo): Partial<Group> => {
     if (!n) return { line: null, measurements: "", hint: "" };
     const meta = info.find((x) => x.line === n);
-    return { line: n, measurements: meta?.measurements ?? lines[n - 1]!, hint: lines[n - 1]! };
+    const e = lines[n - 1]!;
+    return { line: n, measurements: e.measurements || meta?.measurements || "", hint: e.article };
   };
 
   /** AI: which line of the measurements file belongs to which article – unclear ones are marked for the seller. */
   async function matchLines(current = groups) {
     if (!lines.length || !current.length) return;
-    setProgress(`KI ordnet ${lines.length} Zeilen der Maß-Datei den ${current.length} Artikeln zu…`);
+    setProgress(`KI ordnet ${lines.length} Einträge der Maß-Datei den ${current.length} Artikeln zu…`);
     try {
       const fd = new FormData();
       const counts: number[] = [];
@@ -195,7 +222,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
         for (const f of pics) fd.append("photos", await thumbnail(f), f.name);
       }
       fd.append("groups", JSON.stringify(counts));
-      fd.append("lines", JSON.stringify(lines));
+      fd.append("lines", JSON.stringify(lines.map(entryText)));
       const r = await api<LineMatch>("/listings/match-lines", { method: "POST", body: fd });
       setLineInfo(r.lines);
       setGroups(current.map((g, i) => {
@@ -303,10 +330,10 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
             </label>
             <label className="field">Größe<input value={folderSize} onChange={(e) => setFolderSize(e.target.value)} placeholder="z. B. S–M" /></label>
             <div className="row span-all">
-          <input ref={txtInput} type="file" hidden accept=".txt,text/plain" onChange={async (e) => { const f = [...(e.target.files ?? [])]; if (f.length) { setLines(await readLines(f)); setLineInfo([]); } e.target.value = ""; }} />
+          <input ref={txtInput} type="file" hidden accept=".txt,text/plain" onChange={async (e) => { const f = [...(e.target.files ?? [])]; if (f.length) { setLines(await readMeasureFile(f)); setLineInfo([]); } e.target.value = ""; }} />
           <button className="btn small" type="button" onClick={() => txtInput.current?.click()}>📄 Maß-Datei (.txt) {lines.length ? "ersetzen" : "hinzufügen"}</button>
           {lines.length
-            ? <span className="small muted">{lines.length} Zeilen geladen{!!groups.length && " – "}{!!groups.length && <button className="btn small primary" type="button" disabled={!!progress || !aiEnabled} onClick={() => matchLines()}>📄 Maße zuordnen</button>}</span>
+            ? <span className="small muted">{lines.length} Artikel geladen{!!groups.length && " – "}{!!groups.length && <button className="btn small primary" type="button" disabled={!!progress || !aiEnabled} onClick={() => matchLines()}>📄 Maße zuordnen</button>}</span>
             : <span className="small muted">Eine Zeile pro Artikel, z. B. „schwarzer Hoodie 56 breit 67 lang“ – liegt die .txt im Ordner, wird sie automatisch erkannt.</span>}
         </div>
             <label className="field span-all">Weitere Details (Zustand, Passform, Besonderheiten, Wunsch-Hashtags)
@@ -355,7 +382,7 @@ export function FolderUpload({ aiEnabled, onDone }: { aiEnabled: boolean; onDone
                     <div className="row" style={{ gap: 6 }}>
                       <select value={g.line ?? ""} onChange={(e) => update(i, { ...lineFields(e.target.value ? Number(e.target.value) : null), check: false })} style={{ maxWidth: 520 }}>
                         <option value="">— keine Zeile —</option>
-                        {lines.map((l, n) => <option key={n} value={n + 1}>{n + 1}: {l}</option>)}
+                        {lines.map((l, n) => <option key={n} value={n + 1}>{n + 1}: {entryText(l)}</option>)}
                       </select>
                       {g.check && g.line && <button className="btn small primary" type="button" onClick={() => update(i, { check: false })}>✓ Passt</button>}
                       {g.check && !g.line && <button className="btn small" type="button" onClick={() => update(i, { check: false })}>Ohne Zeile weiter</button>}

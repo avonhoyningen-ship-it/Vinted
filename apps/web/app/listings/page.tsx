@@ -184,6 +184,15 @@ function DraftsTab({ later = false }: { later?: boolean }) {
     void reload();
   }
 
+  async function allVeryGood() {
+    if (!confirm("Bei allen Artikeln (Entwürfe, Archiv, aktive) den Zustand auf „Sehr gut“ setzen?")) return;
+    try {
+      const r = await api<{ updated: number }>("/archive/condition-all", { method: "POST", json: { condition: "very_good" } });
+      toast({ kind: "info", text: `Zustand bei ${r.updated} Artikeln auf „Sehr gut“ gesetzt` });
+      void reload();
+    } catch (e) { toast({ kind: "error", text: (e as Error).message }); }
+  }
+
   async function moveLater() {
     await api("/listings/later", { method: "POST", json: { itemIds: selected, later: !later } });
     toast({ kind: "info", text: later ? `${selected.length} zurück in „Entwürfe“` : `${selected.length} nach „Später“ verschoben` });
@@ -219,6 +228,7 @@ function DraftsTab({ later = false }: { later?: boolean }) {
           : <button className="btn primary" disabled={!selected.length} onClick={() => setAssist(true)}>🤖 Bei Vinted vorbereiten ({selected.length})</button>}
       </div>
       <div className="row">
+        <button className="btn" onClick={allVeryGood} title="Setzt den Zustand bei jedem Artikel auf „Sehr gut“">⭐ Alle auf „Sehr gut“</button>
         <div className="spacer" />
         <button className="btn" disabled={!selected.length} onClick={moveLater}>{later ? "↩ Zurück zu Entwürfen" : "⏸ Später"} ({selected.length})</button>
         <button className="btn" disabled={!selected.length} onClick={() => setMarkUploaded(true)}>✓ Als hochgeladen markieren ({selected.length})</button>

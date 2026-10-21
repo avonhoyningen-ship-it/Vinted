@@ -7,7 +7,7 @@ import { HttpError } from "../../lib/http.js";
 import { readPhoto } from "../../storage/photos.js";
 import { CONDITIONS, type PhotoRow } from "../archive/repo.js";
 import { normalizeCondition } from "../accounts/sync.js";
-import { parcelSize, parseMeasurements } from "./brandRules.js";
+import { formatMeasurements, parcelSize } from "./brandRules.js";
 
 export const ListingSuggestion = z.object({
   title: z.string().describe("Vinted-Titel, max. 90 Zeichen, normale Schreibweise: Marke, Artikel, Farbe, Größe und 3–5 passende Trendbegriffe (z. B. Y2K, Vintage, Streetwear, Archive, 2000s)"),
@@ -186,10 +186,10 @@ export function composeDescription(
     ...(s.highlights ?? []).map((h) => h.trim()).filter(Boolean).slice(0, 3).map((h) => `✨ ${h.replace(/^[-•✨\s]+/, "")}`),
   ].filter(Boolean) as string[];
   const m = opts.measurements?.trim();
-  const { width, length } = parseMeasurements(m);
-  const sizes = width || length
-    ? [width && `• Breite: ${width} cm`, length && `• Länge: ${length} cm`].filter(Boolean) as string[]
-    : m ? [`• ${m}`] : [];
+  const found = formatMeasurements(m);
+  const sizes = found.length
+    ? found.map((f) => `• ${f.label}: ${f.value} cm`)
+    : m ? m.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => `• ${l}`) : [];
   const tags = [...new Set(s.hashtags.map((t) => t.trim().replace(/\s+/g, "")).filter((t) => t.replace("#", "")).map((t) => (t.startsWith("#") ? t : `#${t}`).toLowerCase()))];
   return [
     details.length ? `DETAILS\n${details.join("\n")}` : "",

@@ -70,7 +70,7 @@ describe("folder upload with AI sales kit", () => {
     // Built like descriptions that sell: DETAILS – MAẞE – pitch – shipping note – hashtags.
     expect(item.description).toBe([
       "DETAILS\n📏 Größe: L\n🧵 Material: Canvas\n🎨 Farbe: Braun\n⏳ Zustand: Sehr gut\n👤 Passform: Fällt normal aus\n✨ Detroit Jacket mit Cordkragen",
-      "📐 MAẞE\n• Breite: 55 cm\n• Länge: 70 cm",
+      "📐 MAẞE\n• Länge: 70 cm\n• Breite: 55 cm",
       "Workwear-Qualität im Y2K Look, bereit für neue Abenteuer. 🚀", // no "original", no brand (switch off)
       "📦 Schneller Versand nach Zahlungseingang.\nBei Fragen melde dich gerne!\nPrivatverkauf – keine Garantie, Gewährleistung oder Rücknahme.",
       "#japanstyle #y2k #vintage #olderbrothercore",

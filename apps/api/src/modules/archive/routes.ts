@@ -9,7 +9,7 @@ import { getAccount } from "../accounts/repo.js";
 import { confirmPrice, refreshSuggestion } from "../pricing/engine.js";
 import { enqueue } from "../listings/queue.js";
 import {
-  addPhoto, archiveQuery, createItem, createListing, deleteItem, deletePhoto, endListing, facets, getItem, getListing,
+  addPhoto, archiveQuery, CONDITIONS, createItem, createListing, deleteItem, deletePhoto, endListing, facets, getItem, getListing,
   itemDetail, itemInput, itemPatch, listPhotos, markListingSold, reorderPhotos, searchItems, setListingPrice, updateItem,
 } from "./repo.js";
 
@@ -29,6 +29,13 @@ archiveRouter.post("/", h(async (req, res) => {
   if (item.price_cents) await confirmPrice(item.id, item.price_cents, "manual");
   else await refreshSuggestion(item.id);
   res.status(201).json(await getItem(item.id));
+}));
+
+/** Sets the condition of every article that isn't sold yet (default: "Sehr gut"). */
+archiveRouter.post("/condition-all", h(async (req, res) => {
+  const { condition } = z.object({ condition: z.enum(CONDITIONS).default("very_good") }).parse(req.body ?? {});
+  const updated = await db.run("UPDATE items SET condition = ?, updated_at = ? WHERE status <> 'sold' AND (condition IS NULL OR condition <> ?)", [condition, nowIso(), condition]);
+  res.json({ updated });
 }));
 
 archiveRouter.get("/:id", h(async (req, res) => {

@@ -20,7 +20,8 @@ export async function runAi(itemId: number, hints: string | undefined, keep: Par
     priceExamples: await examplesForPrompt(item), mentionBrand,
   });
   // Never "original"; brand switch off → no brand name anywhere (also the one from the label or a brand rule).
-  const s = scrubSuggestion(raw, { mentionBrand, brands: [raw.brand, item.brand] });
+  // Condition is always "Sehr gut" (the seller's choice).
+  const s = { ...scrubSuggestion(raw, { mentionBrand, brands: [raw.brand, item.brand] }), condition: "very_good" as const };
   // Outfit shot → article only → details → tag (as decided by the model).
   const sent = photos.slice(0, 20);
   const order = normalizeOrder(s.photo_order ?? [], sent.length).map((i) => sent[i]!.id);

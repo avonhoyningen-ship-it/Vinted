@@ -104,6 +104,20 @@ describe("brand rules and measurements", async () => {
     expect(parseMeasurements("50breit 61 lang")).toEqual({ width: 50, length: 61 });
     expect(parseMeasurements("Hoodie schwarz Hollister 56 breit 67 lang")).toEqual({ width: 56, length: 67 });
   });
+  it("lists every measurement for the description", async () => {
+    const { formatMeasurements } = await import("../src/modules/listings/brandRules.js");
+    const { composeDescription } = await import("../src/modules/listings/ai.js");
+    const fm = (t: string) => formatMeasurements(t).map((f) => `${f.label}: ${f.value}`);
+    expect(fm("Breite 56 cm, Länge 67 cm")).toEqual(["Breite: 56", "Länge: 67"]);
+    expect(fm("Achsel zu Achsel: 56cm, Länge: 70cm")).toEqual(["Achsel zu Achsel: 56", "Länge: 70"]);
+    expect(fm("Bund 46 Länge 55 Weite Bein 30 Innenbeinlänge 78")).toEqual(["Bund: 46", "Länge: 55", "Weite Bein: 30", "Innenbeinlänge: 78"]);
+    expect(fm("Hoodie schwarz 56 breit 67 lang")).toEqual(["Breite: 56", "Länge: 67"]);
+    expect(fm("L68 B52")).toEqual([]);
+    expect(fm("56 x 67")).toEqual(["Breite: 56", "Länge: 67"]);
+    expect(fm("Laenge 70,5 Aermel 60")).toEqual(["Länge: 70,5", "Ärmel: 60"]);
+    const d = composeDescription({ pitch: "", fit: null, highlights: [], hashtags: [], brand: null, size: "M", material: null, color: null, condition: null }, { measurements: "Achsel zu Achsel 56 cm, Länge 70 cm, Ärmel 62 cm" });
+    expect(d).toContain("📐 MAẞE\n• Achsel zu Achsel: 56 cm\n• Länge: 70 cm\n• Ärmel: 62 cm");
+  });
 });
 
 describe("sales analysis", async () => {

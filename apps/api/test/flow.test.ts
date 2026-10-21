@@ -51,6 +51,15 @@ describe("end-to-end (mock mode)", () => {
     expect(res.body.items.every((i: { status: string }) => i.status === "active")).toBe(true);
   });
 
+  it("sets every unsold article to condition \"Sehr gut\"", async () => {
+    const a = await request(app).post("/api/archive").send({ title: "Hoodie", condition: "good" });
+    const b = await request(app).post("/api/archive").send({ title: "Shirt", condition: "satisfactory" });
+    const res = await request(app).post("/api/archive/condition-all").send({});
+    expect(res.status).toBe(200);
+    expect(res.body.updated).toBeGreaterThanOrEqual(2);
+    for (const id of [a.body.id, b.body.id]) expect((await request(app).get(`/api/archive/${id}`)).body.item.condition).toBe("very_good");
+  });
+
   it("rejects an invalid session", async () => {
     const res = await request(app).post("/api/accounts").send({ name: "Bad", domain: "vinted.de", sessionToken: "invalid-token" });
     expect(res.body.account.status).toBe("error");

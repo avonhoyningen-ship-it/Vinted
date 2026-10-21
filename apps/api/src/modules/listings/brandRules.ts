@@ -76,6 +76,42 @@ export async function applyBrandRules(): Promise<number> {
 }
 
 /** "Breite 43, Länge 65" / "43x65" / "Schulter 43 Laenge 65" / "50 breit 67 lang" → { width, length }. */
+const NUM = "(\\d+(?:[.,]\\d+)?)";
+const LABELS = [
+  "achsel zu achsel", "achsel-achsel", "schulterbreite", "schulter", "brustumfang", "brust", "breite", "weite bein", "beinweite", "bein weite",
+  "innenbeinl(?:ä|ae)nge", "innenbein", "beinl(?:ä|ae)nge", "gesamtl(?:ä|ae)nge", "r(?:ü|ue)ckenl(?:ä|ae)nge", "(?:ä|ae)rmell(?:ä|ae)nge", "(?:ä|ae)rmel",
+  "l(?:ä|ae)nge", "bundweite", "bund", "taille", "h(?:ü|ue)fte", "saumweite", "saum", "oberschenkel", "leibh(?:ö|oe)he", "kragen", "weite",
+];
+const LABEL_FIRST = new RegExp(`(?<![a-zäöüß])(${LABELS.join("|")})\\s*[:=]?\\s*(?:ca\\.?\\s*)?${NUM}\\s*(?:cm)?`, "gi");
+const NUMBER_FIRST = new RegExp(`${NUM}\\s*(?:cm)?\\s*(breit|lang|b|l)(?![a-zäöüß\\d])`, "gi");
+const CROSS = new RegExp(`${NUM}\\s*(?:cm)?\\s*[x×]\\s*${NUM}`, "i");
+
+const labelName = (raw: string) => {
+  const l = raw.toLowerCase().replace(/ae/g, "ä").replace(/oe/g, "ö").replace(/ue/g, "ü");
+  if (l === "breit" || l === "b") return "Breite";
+  if (l === "lang" || l === "l") return "Länge";
+  if (l === "achsel-achsel") return "Achsel zu Achsel";
+  return l.split(" ").map((w) => (w === "zu" ? w : w[0]!.toUpperCase() + w.slice(1))).join(" ");
+};
+
+/**
+ * Every measurement in a free text as "Label: N cm", in the order written:
+ * "Breite 56 cm, Länge 67 cm", "Achsel zu Achsel: 56cm\nLänge: 70cm", "Bund 46 Länge 55", "50 breit 67 lang", "56 x 67".
+ * Empty when no labelled measurement is found (the caller then shows the text as written).
+ */
+export function formatMeasurements(text: string | null | undefined): { label: string; value: string }[] {
+  const t = text ?? "";
+  const found: { at: number; label: string; value: string }[] = [];
+  for (const m of t.matchAll(LABEL_FIRST)) found.push({ at: m.index!, label: labelName(m[1]!), value: m[2]!.replace(".", ",") });
+  for (const m of t.matchAll(NUMBER_FIRST)) found.push({ at: m.index!, label: labelName(m[2]!), value: m[1]!.replace(".", ",") });
+  if (!found.length) {
+    const m = t.match(CROSS);
+    if (m) return [{ label: "Breite", value: m[1]!.replace(".", ",") }, { label: "Länge", value: m[2]!.replace(".", ",") }];
+  }
+  const seen = new Set<string>();
+  return found.sort((a, b) => a.at - b.at).filter((f) => !seen.has(f.label) && seen.add(f.label)).map(({ label, value }) => ({ label, value }));
+}
+
 export function parseMeasurements(text: string | null | undefined): { width: number | null; length: number | null } {
   const t = (text ?? "").toLowerCase();
   const num = (re: RegExp) => { const m = t.match(re); return m ? Number(m[1]!.replace(",", ".")) : null; };
