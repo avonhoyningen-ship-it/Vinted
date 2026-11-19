@@ -30,8 +30,9 @@ async function messageBox(page: Page): Promise<Locator | null> {
 }
 
 /** Vinted's offer dialog: button → price field → confirm. */
-async function makeOffer(page: Page, cents: number): Promise<string | null> {
+export async function makeOffer(page: Page, cents: number, extraOpeners: Locator[] = []): Promise<string | null> {
   const open = await firstVisible([
+    ...extraOpeners,
     page.getByRole("button", { name: /angebot (machen|senden|erstellen)|preis (anbieten|vorschlagen)|make an offer|send (an )?offer/i }),
     page.locator('[data-testid*="offer" i] button'), page.locator('button[data-testid*="offer" i]'),
   ], 10_000);

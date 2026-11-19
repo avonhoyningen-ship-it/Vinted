@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { env } from "../config/env.js";
 import { decodeVintedToken, formatDate, isAnonymous, isExpired } from "./token.js";
 import type {
-  RemoteFavourite, RemoteListing, RemoteListingStatus, RemoteMessage, RemotePurchase, RemoteSale,
+  RemoteFavourite, RemoteListing, RemoteListingStatus, RemoteMessage, RemoteOffer, RemotePurchase, RemoteSale,
   VintedAdapter, VintedProfile, VintedSession,
 } from "./types.js";
 import { VintedError } from "./types.js";
@@ -239,6 +239,54 @@ async function currentUser(s: VintedSession): Promise<ApiUser> {
   }
 }
 
+// ---------- offers in chats ----------
+
+const noOfferSeen = new Map<string, string>();
+
+interface ApiConversation {
+  id: number | string;
+  messages?: { id?: number | string; entity_type?: string; created_at_ts?: string; entity?: Record<string, unknown> }[];
+  transaction?: { item_id?: number | string; item?: { id?: number | string }; item_ids?: (number | string)[] } | null;
+  item?: { id?: number | string } | null;
+}
+
+const money = (v: unknown): number | null => {
+  const raw = v && typeof v === "object" ? (v as { amount?: unknown }).amount : v;
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw.replace(",", ".")) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
+};
+const currencyOf = (v: unknown) => (v && typeof v === "object" && typeof (v as { currency_code?: unknown }).currency_code === "string"
+  ? (v as { currency_code: string }).currency_code : "EUR");
+
+/**
+ * The newest offer in a conversation, if it came from the buyer and is still open.
+ * Vinted's chat JSON isn't documented, so this reads it tolerantly: an "offer…" message
+ * with a price; finished states (accepted, declined, expired, cancelled) are skipped, and
+ * if our own offer is the newest one, nothing is open for us.
+ */
+export function openOfferIn(c: ApiConversation, me: string | null, other: { id: number | string; login: string }): RemoteOffer | null {
+  const msgs = c.messages ?? [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]!;
+    if (!/offer/i.test(m.entity_type ?? "")) continue;
+    const e = m.entity ?? {};
+    const priceRaw = e.price ?? e.offer_price ?? e.amount;
+    const cents = money(priceRaw);
+    if (!cents) continue;
+    const sender = String(e.user_id ?? e.sender_id ?? "");
+    if (sender && me && sender === String(me)) return null;
+    if (sender && sender !== String(other.id)) return null;
+    const state = `${e.status ?? ""} ${e.status_title ?? ""} ${e.title ?? ""}`;
+    if (/accept|angenommen|reject|declin|abgelehnt|expir|abgelaufen|cancel|storniert|zurückgezogen/i.test(state)) return null;
+    const item = c.transaction?.item_id ?? c.transaction?.item?.id ?? c.transaction?.item_ids?.[0] ?? c.item?.id ?? (e.item_id as string | number | undefined);
+    return {
+      externalId: `${c.id}:${m.id ?? e.id ?? m.created_at_ts ?? i}`, conversationId: String(c.id), userId: String(other.id),
+      username: other.login, vintedItemId: item !== undefined && item !== null ? String(item) : null, priceCents: cents, currency: currencyOf(priceRaw),
+    };
+  }
+  return null;
+}
+
 // ---------- adapter ----------
 
 export const liveAdapter: VintedAdapter = {
@@ -327,6 +375,29 @@ export const liveAdapter: VintedAdapter = {
         externalId: `${c.id}:${c.updated_at ?? ""}`, conversationId: String(c.id), userId: String(c.opposite_user!.id),
         username: c.opposite_user!.login, text: c.description ?? "", vintedItemId: null, occurredAt: c.updated_at ?? new Date().toISOString(),
       }));
+  },
+
+  async fetchOffers(s) {
+    let me = s.vintedUserId ?? null;
+    try { me ??= decodeVintedToken(s.token).userId; } catch { /* checked again by getJson */ }
+    const inbox = await getJson<{ conversations?: { id: number; updated_at?: string; opposite_user?: { id: number; login: string } }[] }>(
+      s, "/api/v2/inbox?page=1&per_page=20",
+    );
+    const since = Date.now() - 3 * 86400_000;
+    const recent = (inbox.conversations ?? [])
+      .filter((c) => c.opposite_user && (!c.updated_at || Date.parse(c.updated_at) >= since))
+      .slice(0, 15);
+    const offers: RemoteOffer[] = [];
+    for (const c of recent) {
+      // A chat without an open offer is only read again once it changes (fewer requests to Vinted).
+      const seenKey = `${s.domain}:${c.id}`;
+      if (c.updated_at && noOfferSeen.get(seenKey) === c.updated_at) continue;
+      const r = await getJson<{ conversation?: ApiConversation }>(s, `/api/v2/conversations/${c.id}`).catch(() => null);
+      const offer = r?.conversation ? openOfferIn(r.conversation, me, c.opposite_user!) : null;
+      if (offer) offers.push(offer);
+      else if (r?.conversation && c.updated_at) noOfferSeen.set(seenKey, c.updated_at);
+    }
+    return offers;
   },
 
   async sendMessage() {

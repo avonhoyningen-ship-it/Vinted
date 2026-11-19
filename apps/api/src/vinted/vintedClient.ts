@@ -55,6 +55,11 @@ export class VintedClient {
   fetchPurchases(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchPurchases(s)); }
   fetchFavourites(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchFavourites(s)); }
   fetchMessages(key: string, s: VintedSession) { return this.call(key, () => this.adapter.fetchMessages(s)); }
+  fetchOffers(key: string, s: VintedSession) {
+    const fn = this.adapter.fetchOffers;
+    if (!fn) return Promise.reject(new VintedError("Angebote lesen ist hier nicht verfügbar", "unsupported"));
+    return this.call(key, () => fn.call(this.adapter, s));
+  }
   sendMessage(key: string, s: VintedSession, input: SendMessageInput) { return this.call(key, () => this.adapter.sendMessage(s, input)); }
   createListing(key: string, s: VintedSession, draft: ListingDraft) { return this.call(key, () => this.adapter.createListing(s, draft)); }
   updatePrice(key: string, s: VintedSession, vintedItemId: string, priceCents: number) {

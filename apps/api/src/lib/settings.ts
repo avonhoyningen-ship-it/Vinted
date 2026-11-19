@@ -10,6 +10,17 @@ export const DEFAULT_SETTINGS = {
   /** Hard cap on automated messages per account and day (anti-spam). */
   "automation.dailyMessageCap": 40,
   "automation.paused": false,
+  /** Automatically send a price offer to everyone who favourites an active item (Vinted-Chrome). */
+  "offers.autoFavourites": true,
+  /** Discount for those favourite offers, in percent (rounded to even euros). */
+  "offers.favouritePercent": 20,
+  /** Automatically answer buyers' price offers: accept within the limit, otherwise counter with the limit. */
+  "offers.autoReply": true,
+  /** Highest discount accepted for items listed less than `offers.oldAfterDays` days. */
+  "offers.maxPercentNew": 20,
+  /** Highest discount accepted for items listed at least `offers.oldAfterDays` days. */
+  "offers.maxPercentOld": 30,
+  "offers.oldAfterDays": 7,
   "ai.language": "de",
   /** Instructions for AI listing texts (Einstellungen → KI-Prompt). */
   "ai.listingPrompt": DEFAULT_LISTING_PROMPT,

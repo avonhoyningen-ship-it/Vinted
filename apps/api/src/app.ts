@@ -20,6 +20,7 @@ import { pricingRouter } from "./modules/pricing/routes.js";
 import { analysisRouter } from "./modules/analysis/routes.js";
 import { repriceRouter } from "./modules/reprice/routes.js";
 import { outreachRouter } from "./modules/outreach/routes.js";
+import { offersRouter } from "./modules/offers/routes.js";
 import { reuploadRouter } from "./modules/reupload/routes.js";
 import { ebayCallbackRouter, ebayRouter } from "./modules/marketplaces/ebay/routes.js";
 import { setReuploadDeps } from "./modules/reupload/service.js";
@@ -84,6 +85,7 @@ export function createApp() {
   app.use("/api/analysis", analysisRouter);
   app.use("/api/reprice", repriceRouter);
   app.use("/api/outreach", outreachRouter);
+  app.use("/api/offers", offersRouter);
   app.use("/api", reuploadRouter);
   app.use("/api/ebay", ebayRouter);
   // The posting assistant drives the Chrome on this PC – in the cloud the PC helper does that.

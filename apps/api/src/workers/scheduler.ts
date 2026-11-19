@@ -8,6 +8,7 @@ import { runDueActions, scheduleStaleListingActions } from "../modules/automatio
 import { processDueQueue } from "../modules/listings/queue.js";
 import { watchDuplicates } from "../modules/duplicates/service.js";
 import { pollEbayOrders } from "../modules/marketplaces/ebay/service.js";
+import { autoFavouriteOffers, autoReplyOffers } from "../modules/offers/service.js";
 
 /**
  * Background loops. Each loop is guarded against overlap; intervals are
@@ -97,6 +98,10 @@ export function startWorkers() {
     loop("duplicates", 10 * 60_000, () => withLock("jobs:duplicates", () => forEachUser(() => watchDuplicates())), 90_000),
     // Sold on eBay → mark sold and take it off Vinted.
     loop("ebay", 10 * 60_000, () => withLock("jobs:ebay", () => forEachUser(() => pollEbayOrders())), 60_000),
+    // Local (Vinted-Chrome): answer buyers' offers and send offers to new favourites every 5 minutes.
+    ...(env.appMode === "local" ? [
+      loop("offers", 5 * 60_000, () => withLock("jobs:offers", () => forEachUser(async () => { await autoReplyOffers(); await autoFavouriteOffers(); })), 2 * 60_000),
+    ] : []),
     loop("stale", 60 * 60_000, () => withLock("jobs:stale", () => forEachUser(() => scheduleStaleListingActions())), 30_000),
   ];
   console.log(`[workers] gestartet (Polling alle ${env.pollIntervalMinutes} min, Veröffentlichung alle ${env.publishIntervalMinutes} min)`);

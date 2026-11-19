@@ -11,6 +11,8 @@ interface Settings {
   "sound.preset": SoundPreset; "sound.volume": number; "sound.enabled": boolean;
   "notifications.desktop": boolean; "notifications.confetti": boolean;
   "automation.dailyMessageCap": number; "automation.paused": boolean; "ai.language": string; "ai.listingPrompt": string; "ai.regenerateOnUpload": boolean; "ai.closingText": string; "brand.rules": string; "parcel.rules": string;
+  "offers.autoFavourites": boolean; "offers.favouritePercent": number; "offers.autoReply": boolean;
+  "offers.maxPercentNew": number; "offers.maxPercentOld": number; "offers.oldAfterDays": number;
 }
 interface Info { aiEnabled: boolean; aiModel: string; pollIntervalMinutes: number; publishIntervalMinutes: number }
 
@@ -78,6 +80,8 @@ export default function SettingsPage() {
             </select>
           </label>
         </div>
+
+        <OffersCard data={data} setData={setData} update={update} />
 
         <RulesEditor title="Markenregeln" value={data["brand.rules"]} onSave={(v) => update({ "brand.rules": v })} help={<>
           Eine Regel pro Zeile: <code>Wörter im Titel oder in der Kategorie=Marke</code>. Die Regel gewinnt immer gegen die KI und wird
@@ -166,6 +170,54 @@ function RemoteAccessCard() {
         </>
       ) : (
         <div className="alert small">Ohne Passwort ist das Dashboard nur auf diesem PC erreichbar. Starte „Zugriff von anderem Geraet.bat“ – dort legst du ein Passwort fest und gibst den Zugriff frei.</div>
+      )}
+    </div>
+  );
+}
+
+interface OfferLog { at: string; kind: "reply" | "favourites"; account: string; name: string; title: string; text: string; ok: boolean }
+
+/** Automatic offers: to members who favourite, and answers to buyers' offers (runs every 5 minutes in the background). */
+function OffersCard({ data, setData, update }: { data: Settings; setData: (s: Settings) => void; update: (p: Partial<Settings>) => Promise<void> }) {
+  const toast = useToast();
+  const status = useApi<{ log: OfferLog[] }>("/offers/status");
+  const [busy, setBusy] = useState(false);
+  const num = (key: "offers.favouritePercent" | "offers.maxPercentNew" | "offers.maxPercentOld" | "offers.oldAfterDays", min: number, max: number) => (
+    <input type="number" min={min} max={max} value={data[key]}
+      onChange={(e) => setData({ ...data, [key]: Number(e.target.value) })}
+      onBlur={() => update({ [key]: Math.min(max, Math.max(min, Math.round(data[key]))) })} />
+  );
+  async function runNow() {
+    setBusy(true);
+    try {
+      const r = await api<{ replied: number; favourites: number; log: OfferLog[] }>("/offers/run", { method: "POST" });
+      status.setData({ log: r.log });
+      toast({ kind: "info", text: `${r.replied} Angebot(e) beantwortet, ${r.favourites} Favoriten-Angebot(e) gestartet` });
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="card stack">
+      <h2>💸 Automatische Angebote</h2>
+      <label className="row"><input type="checkbox" checked={data["offers.autoFavourites"]} onChange={(e) => update({ "offers.autoFavourites": e.target.checked })} /> Favoriten automatisch ein Angebot schicken</label>
+      <label className="field">Rabatt für Favoriten in % {num("offers.favouritePercent", 1, 80)}</label>
+      <label className="row"><input type="checkbox" checked={data["offers.autoReply"]} onChange={(e) => update({ "offers.autoReply": e.target.checked })} /> Angebote von Käufern automatisch beantworten</label>
+      <label className="field">Ab wie vielen Tagen online gilt ein Artikel als „alt“ {num("offers.oldAfterDays", 1, 365)}</label>
+      <label className="field">Max. Rabatt, den ich annehme – neue Artikel (%) {num("offers.maxPercentNew", 0, 80)}</label>
+      <label className="field">Max. Rabatt, den ich annehme – alte Artikel (%) {num("offers.maxPercentOld", 0, 80)}</label>
+      <div className="small">Liegt ein Angebot darunter, schickt das Dashboard ein Gegenangebot zum niedrigsten erlaubten Preis (gerade Euro).</div>
+      <div className="small muted">Läuft alle 5 Minuten im Hintergrund, solange das Dashboard und der Vinted-Chrome laufen. „Alle Automatisierungen pausieren“ stoppt es auch.</div>
+      <div className="row"><button className="btn small" disabled={busy} onClick={runNow}>{busy ? "Prüfe …" : "Jetzt prüfen"}</button></div>
+      {!!status.data?.log.length && (
+        <table className="small"><tbody>
+          {status.data.log.slice(0, 15).map((l, i) => (
+            <tr key={i}><td>{new Date(l.at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+              <td>{l.ok ? "✅" : "⚠️"} <b>{l.name}</b> – {l.title}: {l.text}</td></tr>
+          ))}
+        </tbody></table>
       )}
     </div>
   );

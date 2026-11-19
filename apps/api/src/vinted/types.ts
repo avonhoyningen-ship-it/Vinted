@@ -82,6 +82,18 @@ export interface RemoteMessage {
   occurredAt: string;
 }
 
+/** A price offer a buyer made in a chat that is still open (not accepted, declined or answered by us). */
+export interface RemoteOffer {
+  /** Unique per offer message, e.g. "<conversationId>:<messageId>". */
+  externalId: string;
+  conversationId: string;
+  userId: string;
+  username: string;
+  vintedItemId: string | null;
+  priceCents: number;
+  currency: string;
+}
+
 export interface ListingDraft {
   title: string;
   description: string;
@@ -117,6 +129,8 @@ export interface VintedAdapter {
   fetchPurchases(s: VintedSession): Promise<RemotePurchase[]>;
   fetchFavourites(s: VintedSession): Promise<RemoteFavourite[]>;
   fetchMessages(s: VintedSession): Promise<RemoteMessage[]>;
+  /** Open price offers from buyers in recent chats (optional: not every transport can read them). */
+  fetchOffers?(s: VintedSession): Promise<RemoteOffer[]>;
   sendMessage(s: VintedSession, input: SendMessageInput): Promise<void>;
   createListing(s: VintedSession, draft: ListingDraft): Promise<{ vintedItemId: string; url: string }>;
   updatePrice(s: VintedSession, vintedItemId: string, priceCents: number): Promise<void>;
