@@ -102,10 +102,15 @@ async function answerOne(a: AccountRow, o: RemoteOffer, rules: OfferRules): Prom
   const tries = attempts.get(`${a.id}:${o.externalId}`) ?? 0;
   if (tries >= MAX_ATTEMPTS || (await handled(a.id, o.externalId))) return false;
   const listing = o.vintedItemId
-    ? await db.get<{ id: number; title: string; price_cents: number | null; listed_at: string | null }>(
-      "SELECT id, title, price_cents, listed_at FROM listings WHERE account_id = ? AND vinted_item_id = ? AND status = 'active'", [a.id, o.vintedItemId])
+    ? await db.get<{ id: number; title: string; price_cents: number | null; listed_at: string | null; status: string }>(
+      "SELECT id, title, price_cents, listed_at, status FROM listings WHERE account_id = ? AND vinted_item_id = ? ORDER BY status = 'active' DESC LIMIT 1", [a.id, o.vintedItemId])
     : undefined;
   const base = { kind: "reply" as const, account: a.name, name: o.username };
+  // Old offer for an item that is sold or gone: nothing to answer.
+  if (listing && listing.status !== "active") {
+    await markHandled(a.id, o.externalId);
+    return false;
+  }
   if (!listing) {
     await markHandled(a.id, o.externalId);
     addLog({ ...base, title: o.vintedItemId ? `Artikel ${o.vintedItemId}` : "unbekannter Artikel", text: `Angebot ${priceText(o.priceCents)} € – Artikel nicht als aktiv im Dashboard, bitte selbst antworten`, ok: false });

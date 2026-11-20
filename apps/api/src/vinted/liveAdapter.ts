@@ -243,6 +243,29 @@ async function currentUser(s: VintedSession): Promise<ApiUser> {
 
 const noOfferSeen = new Map<string, string>();
 
+/**
+ * Old favourites and offers: right after the start and then every 12 h the whole history is read
+ * (several pages), otherwise only the newest page – keeps the requests to Vinted low.
+ */
+const DEEP_SCAN_MS = 12 * 3600_000;
+const lastDeepScan = new Map<string, number>();
+function deepScanDue(kind: string, s: VintedSession) {
+  const k = `${kind}:${s.domain}:${s.vintedUserId ?? s.token.slice(-16)}`;
+  if (Date.now() - (lastDeepScan.get(k) ?? 0) < DEEP_SCAN_MS) return false;
+  lastDeepScan.set(k, Date.now());
+  return true;
+}
+/** Reads up to `maxPages` pages; stops at the first short or failed page (after the first). */
+async function pages<T>(maxPages: number, read: (page: number) => Promise<T[]>, perPage: number): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const got = page === 1 ? await read(page) : await read(page).catch(() => [] as T[]);
+    all.push(...got);
+    if (got.length < perPage) break;
+  }
+  return all;
+}
+
 interface ApiConversation {
   id: number | string;
   messages?: { id?: number | string; entity_type?: string; created_at_ts?: string; entity?: Record<string, unknown> }[];
@@ -354,10 +377,10 @@ export const liveAdapter: VintedAdapter = {
   },
 
   async fetchFavourites(s) {
-    const r = await getJson<{ notifications?: { id: number; body?: string; subject_id?: number; updated_at?: string; user_id?: number }[] }>(
-      s, "/api/v2/notifications?page=1&per_page=50",
-    );
-    return (r.notifications ?? [])
+    type Note = { id: number; body?: string; subject_id?: number; updated_at?: string; user_id?: number };
+    const notes = await pages<Note>(deepScanDue("favourites", s) ? 20 : 1, async (page) =>
+      (await getJson<{ notifications?: Note[] }>(s, `/api/v2/notifications?page=${page}&per_page=50`)).notifications ?? [], 50);
+    return notes
       .filter((n) => /favorit|favourite|merkliste|gefällt/i.test(n.body ?? ""))
       .map<RemoteFavourite>((n) => ({
         externalId: String(n.id), vintedItemId: String(n.subject_id ?? ""), userId: String(n.user_id ?? ""),
@@ -380,18 +403,21 @@ export const liveAdapter: VintedAdapter = {
   async fetchOffers(s) {
     let me = s.vintedUserId ?? null;
     try { me ??= decodeVintedToken(s.token).userId; } catch { /* checked again by getJson */ }
-    const inbox = await getJson<{ conversations?: { id: number; updated_at?: string; opposite_user?: { id: number; login: string } }[] }>(
-      s, "/api/v2/inbox?page=1&per_page=20",
-    );
-    const since = Date.now() - 3 * 86400_000;
-    const recent = (inbox.conversations ?? [])
+    type Conv = { id: number; updated_at?: string; opposite_user?: { id: number; login: string } };
+    // Deep scan: every chat of the last 60 days (old, still open offers too); otherwise the last 3 days.
+    const deep = deepScanDue("offers", s);
+    const convs = await pages<Conv>(deep ? 10 : 1, async (page) =>
+      (await getJson<{ conversations?: Conv[] }>(s, `/api/v2/inbox?page=${page}&per_page=50`)).conversations ?? [], 50);
+    const since = Date.now() - (deep ? 60 : 3) * 86400_000;
+    const recent = convs
       .filter((c) => c.opposite_user && (!c.updated_at || Date.parse(c.updated_at) >= since))
-      .slice(0, 15);
+      .slice(0, deep ? 500 : 30);
     const offers: RemoteOffer[] = [];
     for (const c of recent) {
       // A chat without an open offer is only read again once it changes (fewer requests to Vinted).
       const seenKey = `${s.domain}:${c.id}`;
       if (c.updated_at && noOfferSeen.get(seenKey) === c.updated_at) continue;
+      if (deep) await sleep(800); // many old chats: gently, one after the other
       const r = await getJson<{ conversation?: ApiConversation }>(s, `/api/v2/conversations/${c.id}`).catch(() => null);
       const offer = r?.conversation ? openOfferIn(r.conversation, me, c.opposite_user!) : null;
       if (offer) offers.push(offer);
