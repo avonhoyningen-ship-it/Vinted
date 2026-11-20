@@ -94,7 +94,8 @@ export async function planOutreach(kind: OutreachKind, percent = 10): Promise<{ 
 export const startInput = z.object({
   kind: z.enum(["purchases", "favourites"]),
   keys: z.array(z.string().min(1)).min(1).max(500),
-  text: z.string().trim().min(1).max(1000),
+  // Empty text = only the price offer, no message (automatic favourite offers).
+  text: z.string().trim().max(1000),
   percent: z.number().int().min(1).max(80).default(10),
 });
 

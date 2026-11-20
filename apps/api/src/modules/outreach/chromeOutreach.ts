@@ -92,7 +92,10 @@ export async function sendInChrome(job: OutreachJob): Promise<OutreachResult> {
     if (job.offerCents) {
       const problem = await makeOffer(page, job.offerCents);
       if (problem) return fail(problem);
+      // Only the offer, no extra text.
+      if (!job.text.trim()) return { ok: true, message: `Angebot ${priceText(job.offerCents)} € gesendet` };
     }
+    if (!job.text.trim()) return fail("Kein Text zum Senden");
 
     const box = await messageBox(page);
     if (!box) return fail("Nachrichtenfeld nicht gefunden – ist der Chat erreichbar?");

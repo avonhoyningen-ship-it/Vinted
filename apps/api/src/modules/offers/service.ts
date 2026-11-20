@@ -6,7 +6,7 @@ import { syncAccount } from "../accounts/sync.js";
 import type { RemoteOffer } from "../../vinted/types.js";
 import { chromeUrlFor, sessionFor, type AccountRow } from "../accounts/repo.js";
 import { priceText } from "../assist/assistant.js";
-import { DEFAULT_TEXTS, getOutreachStatus, planOutreach, startOutreach } from "../outreach/service.js";
+import { getOutreachStatus, planOutreach, startOutreach } from "../outreach/service.js";
 import { answerOfferInChrome, type OfferAnswerJob, type OfferAnswerResult } from "./chromeOffer.js";
 
 /**
@@ -71,7 +71,7 @@ export async function autoFavouriteOffers(): Promise<number> {
   const open = targets.filter((t) => !t.skip && !t.alreadySent).slice(0, 500);
   if (!open.length) return 0;
   try {
-    await startOutreach({ kind: "favourites", keys: open.map((t) => t.key), text: DEFAULT_TEXTS.favourites, percent });
+    await startOutreach({ kind: "favourites", keys: open.map((t) => t.key), text: "", percent }); // only the offer, no message
     addLog({ kind: "favourites", account: "alle", name: `${open.length} Mitglieder`, title: "Favoriten", text: `Angebote −${percent} % werden verschickt`, ok: true });
     return open.length;
   } catch (e) {
