@@ -436,7 +436,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       [acc.id, listing.id, new Date().toISOString()]);
     const pv = (await request(app).get("/api/outreach/preview").query({ kind: "favourites", percent: 10 })).body;
     const t = pv.targets.find((x: { title: string }) => x.title === "Favoriten Hoodie");
-    expect(t).toMatchObject({ name: "lena_m", offerCents: 3200, oldCents: 3500, path: "/items/6060/want_it/new?receiver_id=777", skip: null });
+    expect(t).toMatchObject({ name: "lena_m", offerCents: 3200, oldCents: 3500, path: "/inbox/want_it?receiver_id=777&item_id=6060&offer_request=true", skip: null });
 
     await request(app).post("/api/outreach/start").send({ kind: "favourites", keys: [t.key], text: pv.defaultText, percent: 10 });
     const done = await waitFor(async () => {
@@ -444,7 +444,7 @@ describe.skipIf(!hasChrome)("posting assistant (Vinted-Chrome via CDP)", () => {
       return s.state === "done" && s;
     }, 60_000);
     expect(done.items[0]).toMatchObject({ state: "done", message: "Angebot 32 € gesendet" });
-    expect(chats.at(-1)).toEqual({ path: "/items/6060/want_it/new?receiver_id=777", offer: "32", text: "Hey lena_m, du hast „Favoriten Hoodie“ favorisiert – ich mach dir ein Angebot: 32 € statt 35 € 🙂" });
+    expect(chats.at(-1)).toEqual({ path: "/inbox/want_it?receiver_id=777&item_id=6060&offer_request=true", offer: "32", text: "Hey lena_m, du hast „Favoriten Hoodie“ favorisiert – ich mach dir ein Angebot: 32 € statt 35 € 🙂" });
   }, 90_000);
 
   it("re-uploads an online listing: deleted on Vinted, then prepared again", async () => {

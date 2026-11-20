@@ -31,30 +31,52 @@ async function messageBox(page: Page): Promise<Locator | null> {
 
 /** Vinted's offer dialog: button → price field → confirm. */
 export async function makeOffer(page: Page, cents: number, extraOpeners: Locator[] = []): Promise<string | null> {
-  const open = await firstVisible([
-    ...extraOpeners,
-    page.getByRole("button", { name: /angebot (machen|senden|erstellen)|preis (anbieten|vorschlagen)|make an offer|send (an )?offer/i }),
-    page.locator('[data-testid*="offer" i] button'), page.locator('button[data-testid*="offer" i]'),
-  ], 10_000);
-  if (!open) return "Knopf für ein Angebot nicht gefunden";
-  await open.click();
-  const field = [
-    page.locator('[data-testid*="offer" i] input'), page.locator('input[name*="price" i]'), page.locator('input[name*="offer" i]'),
+  // Vinted's offer window (Nov 2026): input name="offer" (type number) + submit button "Verhandeln".
+  const fieldCandidates = [
+    page.locator('[data-testid="offer-price-field--input"]'), page.locator('input[name="offer"]'),
+    page.locator('[data-testid*="offer" i] input'), page.locator('input[name*="price" i]'),
     page.getByLabel(/preis|angebot|price|offer/i), page.getByRole("textbox", { name: /preis|angebot|price|offer/i }),
   ];
-  if (!(await fillPrice(page, field, priceText(cents)))) return "Preisfeld im Angebot nicht gefunden";
-  // The confirm button inside the offer dialog (not the button that opened it).
-  const dialog = page.locator('[role="dialog"], [data-testid*="offer" i][class*="modal" i], [class*="modal" i]');
+  // With ?offer_request=true the window is already open – then don't click anything else (could close it).
+  let field = await firstVisible(fieldCandidates.slice(0, 2), 6000);
+  if (!field) {
+    const open = await firstVisible([
+      ...extraOpeners,
+      page.locator('[data-testid="make-offer-button"]'),
+      page.getByRole("button", { name: /^\s*verhandeln\s*$|angebot (machen|senden|erstellen)|preis (anbieten|vorschlagen)|make an offer|send (an )?offer/i }),
+      page.locator('button[data-testid*="offer" i]:not([data-testid*="close" i])'),
+    ], 10_000);
+    if (!open) return "Knopf für ein Angebot nicht gefunden";
+    await open.click();
+    field = await firstVisible(fieldCandidates, 8000);
+  }
+  if (!field) return "Preisfeld im Angebot nicht gefunden";
+  const isNumber = (await field.getAttribute("type").catch(() => null)) === "number";
+  const value = isNumber ? String(cents / 100) : priceText(cents);
+  if (isNumber) {
+    await field.click();
+    await field.fill(value);
+    const got = Number((await field.inputValue().catch(() => "")).replace(",", "."));
+    if (Math.round(got * 100) !== cents) return `Preis ließ sich nicht eintragen (${value} €)`;
+  } else if (!(await fillPrice(page, [field], value))) {
+    return "Preisfeld im Angebot nicht gefunden";
+  }
+  // The confirm button inside the offer window (not the button that opened it).
+  const dialog = page.locator('[role="dialog"], [data-testid="offer-modal--overlay"], [class*="modal" i]');
   const confirm = await firstVisible([
-    dialog.getByRole("button", { name: /angebot senden|senden|anbieten|bestätigen|send/i }),
+    page.locator('[data-testid="offer-submit-button"]'),
+    dialog.getByRole("button", { name: /verhandeln|angebot senden|senden|anbieten|bestätigen|send/i }),
     dialog.locator('button[type="submit"]'),
     page.getByRole("button", { name: /^\s*(angebot senden|send offer)\s*$/i }),
   ], 8000);
   if (!confirm) return "Knopf „Angebot senden“ nicht gefunden";
   await confirm.click();
-  await page.waitForTimeout(1200);
-  const err = (await page.locator('[role="alert"]').first().innerText().catch(() => "")).trim();
-  return err && /fehler|nicht|error|kann/i.test(err) ? `Vinted: ${err.slice(0, 160)}` : null;
+  await page.waitForTimeout(2000);
+  const err = (await page.locator('[role="alert"], [data-testid*="error" i]').first().innerText().catch(() => "")).trim();
+  if (err && /fehler|nicht|error|kann|mindest|höchst/i.test(err)) return `Vinted: ${err.slice(0, 160)}`;
+  // Window still open → not sent.
+  if (await page.locator('[data-testid="offer-submit-button"]').isVisible().catch(() => false)) return "Angebot wurde nicht abgeschickt (Fenster noch offen)";
+  return null;
 }
 
 export async function sendInChrome(job: OutreachJob): Promise<OutreachResult> {

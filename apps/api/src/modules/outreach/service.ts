@@ -38,7 +38,7 @@ export const DEFAULT_TEXTS: Record<OutreachKind, string> = {
 
 /** Chat start page for an item and a member (VINTED_OFFER_PATH can override it if Vinted changes the address). */
 const offerPath = (vintedItemId: string, userId: string) =>
-  (process.env.VINTED_OFFER_PATH ?? "/items/{item}/want_it/new?receiver_id={user}").replace("{item}", vintedItemId).replace("{user}", userId);
+  (process.env.VINTED_OFFER_PATH ?? "/inbox/want_it?receiver_id={user}&item_id={item}&offer_request=true").replace("{item}", vintedItemId).replace("{user}", userId);
 
 async function connectedAccounts() {
   return db.all<AccountRow>("SELECT * FROM accounts WHERE status = 'connected' ORDER BY id");
