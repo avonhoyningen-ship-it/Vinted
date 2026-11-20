@@ -180,7 +180,23 @@ interface OfferLog { at: string; kind: "reply" | "favourites"; account: string; 
 /** Automatic offers: to members who favourite, and answers to buyers' offers (runs every 5 minutes in the background). */
 function OffersCard({ data, setData, update }: { data: Settings; setData: (s: Settings) => void; update: (p: Partial<Settings>) => Promise<void> }) {
   const toast = useToast();
-  const status = useApi<{ log: OfferLog[] }>("/offers/status");
+  const status = useApi<{ log: OfferLog[]; deepRunning?: boolean }>("/offers/status");
+  const deepRunning = !!status.data?.deepRunning;
+  // While the run through old things is going: refresh the log every few seconds.
+  useEffect(() => {
+    if (!deepRunning) return;
+    const t = setInterval(() => void status.reload(), 5000);
+    return () => clearInterval(t);
+  }, [deepRunning, status.reload]);
+  async function runOld() {
+    try {
+      const r = await api<{ started: boolean; log: OfferLog[]; deepRunning: boolean }>("/offers/run-old", { method: "POST" });
+      status.setData({ log: r.log, deepRunning: r.deepRunning });
+      toast({ kind: "info", text: r.started ? "Alte Favoriten und Angebote werden jetzt bearbeitet – dauert ein paar Minuten" : "Läuft schon" });
+    } catch (e) {
+      toast({ kind: "error", text: (e as Error).message });
+    }
+  }
   const [busy, setBusy] = useState(false);
   const num = (key: "offers.favouritePercent" | "offers.maxPercentNew" | "offers.maxPercentOld" | "offers.oldAfterDays", min: number, max: number) => (
     <input type="number" min={min} max={max} value={data[key]}
@@ -191,7 +207,7 @@ function OffersCard({ data, setData, update }: { data: Settings; setData: (s: Se
     setBusy(true);
     try {
       const r = await api<{ replied: number; favourites: number; log: OfferLog[] }>("/offers/run", { method: "POST" });
-      status.setData({ log: r.log });
+      status.setData({ ...status.data, log: r.log });
       toast({ kind: "info", text: `${r.replied} Angebot(e) beantwortet, ${r.favourites} Favoriten-Angebot(e) gestartet` });
     } catch (e) {
       toast({ kind: "error", text: (e as Error).message });
@@ -210,7 +226,9 @@ function OffersCard({ data, setData, update }: { data: Settings; setData: (s: Se
       <label className="field">Max. Rabatt, den ich annehme – alte Artikel (%) {num("offers.maxPercentOld", 0, 80)}</label>
       <div className="small">Liegt ein Angebot darunter, schickt das Dashboard ein Gegenangebot zum niedrigsten erlaubten Preis (gerade Euro).</div>
       <div className="small muted">Läuft alle 5 Minuten im Hintergrund, solange das Dashboard und der Vinted-Chrome laufen. „Alle Automatisierungen pausieren“ stoppt es auch.</div>
-      <div className="row"><button className="btn small" disabled={busy} onClick={runNow}>{busy ? "Prüfe …" : "Jetzt prüfen"}</button></div>
+      <div className="row"><button className="btn small" disabled={busy} onClick={runNow}>{busy ? "Prüfe …" : "Jetzt prüfen"}</button>
+        <button className="btn small" disabled={deepRunning} onClick={runOld}>{deepRunning ? "Bearbeite alte Sachen …" : "Alte Favoriten & Angebote jetzt bearbeiten"}</button></div>
+      <div className="small muted">„Alte … bearbeiten“ liest alle alten Favoriten und Chats der letzten 60 Tage und schickt bzw. beantwortet die Angebote (Tageslimit gilt). Dauert ein paar Minuten.</div>
       {!!status.data?.log.length && (
         <table className="small"><tbody>
           {status.data.log.slice(0, 15).map((l, i) => (

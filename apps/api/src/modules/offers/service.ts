@@ -1,6 +1,8 @@
-import { currentUserId, db, nowIso } from "../../db/index.js";
+import { currentUserId, db, nowIso, withUser } from "../../db/index.js";
 import { getSetting, getSettings } from "../../lib/settings.js";
 import { vintedClient } from "../../vinted/vintedClient.js";
+import { forceDeepScan } from "../../vinted/liveAdapter.js";
+import { syncAccount } from "../accounts/sync.js";
 import type { RemoteOffer } from "../../vinted/types.js";
 import { chromeUrlFor, sessionFor, type AccountRow } from "../accounts/repo.js";
 import { priceText } from "../assist/assistant.js";
@@ -139,7 +141,15 @@ async function answerOne(a: AccountRow, o: RemoteOffer, rules: OfferRules): Prom
   return false;
 }
 
-export async function autoReplyOffers(): Promise<number> {
+/** One answering round at a time (background loop and button), so no offer is answered twice. */
+let replyChain: Promise<unknown> = Promise.resolve();
+export function autoReplyOffers(): Promise<number> {
+  const run = replyChain.then(replyRound, replyRound);
+  replyChain = run.catch(() => undefined);
+  return run;
+}
+
+async function replyRound(): Promise<number> {
   const s = await getSettings();
   if (!s["offers.autoReply"] || s["automation.paused"]) return 0;
   const rules: OfferRules = { maxPercentNew: s["offers.maxPercentNew"], maxPercentOld: s["offers.maxPercentOld"], oldAfterDays: s["offers.oldAfterDays"] };
@@ -165,8 +175,40 @@ export async function autoReplyOffers(): Promise<number> {
   return done;
 }
 
+// ---------- 3. button: work through everything old now ----------
+
+const deepRuns = new Set<string>();
+/**
+ * Reads the whole history again (old favourites, chats of the last 60 days) and answers / sends
+ * offers. Runs in the background – takes a few minutes; progress shows in the log.
+ */
+export function startDeepRun(): boolean {
+  const user = currentUserId();
+  if (deepRuns.has(user)) return false;
+  deepRuns.add(user);
+  void withUser(user, async () => {
+    try {
+      forceDeepScan();
+      addLog({ kind: "reply", account: "alle", name: "Alte Sachen", title: "Durchlauf", text: "Alte Favoriten und Angebote werden gelesen …", ok: true });
+      for (const { id } of await db.all<{ id: number }>("SELECT id FROM accounts WHERE status = 'connected' ORDER BY id")) {
+        await syncAccount(id).catch((e) => console.warn(`[offers] Sync ${id}:`, (e as Error).message));
+      }
+      const replied = await autoReplyOffers();
+      const favourites = await autoFavouriteOffers();
+      addLog({ kind: "reply", account: "alle", name: "Alte Sachen", title: "Durchlauf fertig",
+        text: `${replied} alte(s) Angebot(e) beantwortet, ${favourites} Favoriten-Angebot(e) gestartet`, ok: true });
+    } catch (e) {
+      addLog({ kind: "reply", account: "alle", name: "Alte Sachen", title: "Durchlauf", text: `abgebrochen: ${(e as Error).message}`, ok: false });
+    } finally {
+      deepRuns.delete(user);
+    }
+  });
+  return true;
+}
+
 export async function offerStatus() {
   return {
+    deepRunning: deepRuns.has(currentUserId()),
     autoFavourites: await getSetting("offers.autoFavourites"),
     autoReply: await getSetting("offers.autoReply"),
     log: getOfferLog(),

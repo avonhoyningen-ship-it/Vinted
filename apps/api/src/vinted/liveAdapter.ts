@@ -141,7 +141,9 @@ async function getJson<T>(s: VintedSession, path: string): Promise<T> {
       "auth",
     );
   }
-  const res = await rawFetch(s, `https://www.${s.domain}${path}`, "application/json, text/plain, */*");
+  // Most endpoints live on www.<domain>; newer ones (e.g. notifications) on api.<domain> – then `path` is a full URL.
+  const url = path.startsWith("https://") ? path : `https://www.${s.domain}${path}`;
+  const res = await rawFetch(s, url, "application/json, text/plain, */*");
   const type = res.headers.get("content-type") ?? "";
   const text = await res.text();
   const isJson = type.includes("json");
@@ -243,6 +245,18 @@ async function currentUser(s: VintedSession): Promise<ApiUser> {
 
 const noOfferSeen = new Map<string, string>();
 
+/** "lena hat deinen Artikel … favorisiert." + link with the item and the member's user id. */
+export function favouriteFromNote(n: { id: number | string; body?: string; subject_id?: number; link?: string; updated_at?: string }): RemoteFavourite | null {
+  const link = n.link ?? "";
+  const userId = /(?:offering_id|user_id|receiver_id)=(\d+)/.exec(link)?.[1] ?? "";
+  const itemId = n.subject_id ? String(n.subject_id) : /(?:item_id=|\/items\/)(\d+)/.exec(link)?.[1] ?? "";
+  if (!userId || !itemId) return null;
+  return {
+    externalId: String(n.id), vintedItemId: itemId, userId,
+    username: (n.body ?? "").trim().split(/\s+/)[0] ?? "", occurredAt: n.updated_at ?? new Date().toISOString(),
+  };
+}
+
 /**
  * Old favourites and offers: right after the start and then every 12 h the whole history is read
  * (several pages), otherwise only the newest page – keeps the requests to Vinted low.
@@ -254,6 +268,10 @@ function deepScanDue(kind: string, s: VintedSession) {
   if (Date.now() - (lastDeepScan.get(k) ?? 0) < DEEP_SCAN_MS) return false;
   lastDeepScan.set(k, Date.now());
   return true;
+}
+/** Next read of favourites and offers goes through the whole history again (button in the settings). */
+export function forceDeepScan() {
+  lastDeepScan.clear();
 }
 /** Reads up to `maxPages` pages; stops at the first short or failed page (after the first). */
 async function pages<T>(maxPages: number, read: (page: number) => Promise<T[]>, perPage: number): Promise<T[]> {
@@ -299,8 +317,10 @@ export function openOfferIn(c: ApiConversation, me: string | null, other: { id: 
     const sender = String(e.user_id ?? e.sender_id ?? "");
     if (sender && me && sender === String(me)) return null;
     if (sender && sender !== String(other.id)) return null;
-    const state = `${e.status ?? ""} ${e.status_title ?? ""} ${e.title ?? ""}`;
-    if (/accept|angenommen|reject|declin|abgelehnt|expir|abgelaufen|cancel|storniert|zurückgezogen/i.test(state)) return null;
+    // Vinted: status 20 = accepted, 30 = declined, 40 = cancelled/expired ("Abgebrochen"); only open ones count.
+    if ([20, 30, 40].includes(Number(e.status)) || e.current === false) return null;
+    const state = `${e.status_title ?? ""}`;
+    if (/accept|angenommen|reject|declin|abgelehnt|expir|abgelaufen|abgebrochen|cancel|storniert|zurückgezogen/i.test(state)) return null;
     const item = c.transaction?.item_id ?? c.transaction?.item?.id ?? c.transaction?.item_ids?.[0] ?? c.item?.id ?? (e.item_id as string | number | undefined);
     return {
       externalId: `${c.id}:${m.id ?? e.id ?? m.created_at_ts ?? i}`, conversationId: String(c.id), userId: String(other.id),
@@ -377,15 +397,22 @@ export const liveAdapter: VintedAdapter = {
   },
 
   async fetchFavourites(s) {
-    type Note = { id: number; body?: string; subject_id?: number; updated_at?: string; user_id?: number };
-    const notes = await pages<Note>(deepScanDue("favourites", s) ? 20 : 1, async (page) =>
-      (await getJson<{ notifications?: Note[] }>(s, `/api/v2/notifications?page=${page}&per_page=50`)).notifications ?? [], 50);
+    // Vinted moved the notifications to api.<domain>/inbox-notifications (the old /api/v2/notifications is gone).
+    type Note = { id: number | string; body?: string; entry_type?: number; subject_id?: number; link?: string; updated_at?: string };
+    type Page = { notifications?: Note[]; pagination?: { total_pages?: number } };
+    const maxPages = deepScanDue("favourites", s) ? 30 : 1;
+    const notes: Note[] = [];
+    for (let page = 1; page <= maxPages; page++) {
+      const url = `https://api.${s.domain}/inbox-notifications/v1/notifications?page=${page}&per_page=20`;
+      const r = page === 1 ? await getJson<Page>(s, url) : await getJson<Page>(s, url).catch(() => null);
+      notes.push(...(r?.notifications ?? []));
+      if (!r?.notifications?.length || page >= (r.pagination?.total_pages ?? page)) break;
+      await sleep(500);
+    }
     return notes
-      .filter((n) => /favorit|favourite|merkliste|gefällt/i.test(n.body ?? ""))
-      .map<RemoteFavourite>((n) => ({
-        externalId: String(n.id), vintedItemId: String(n.subject_id ?? ""), userId: String(n.user_id ?? ""),
-        username: (n.body ?? "").split(" ")[0] ?? "", occurredAt: n.updated_at ?? new Date().toISOString(),
-      }));
+      .filter((n) => n.entry_type === 20 || /favorisiert|favorit|favourite|merkliste/i.test(n.body ?? ""))
+      .map((n) => favouriteFromNote(n))
+      .filter((f): f is RemoteFavourite => !!f);
   },
 
   async fetchMessages(s) {

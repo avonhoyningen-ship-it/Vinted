@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decideOffer } from "../src/modules/offers/service.js";
-import { openOfferIn } from "../src/vinted/liveAdapter.js";
+import { favouriteFromNote, openOfferIn } from "../src/vinted/liveAdapter.js";
 
 const rules = { maxPercentNew: 20, maxPercentOld: 30, oldAfterDays: 7 };
 const now = Date.parse("2026-11-18T12:00:00Z");
@@ -52,7 +52,27 @@ describe("openOfferIn", () => {
     ]), "77", other)).toBeNull();
   });
 
+  it("ignores Vinted's cancelled/expired offers (status 40, „Abgebrochen“)", () => {
+    expect(openOfferIn(conv([
+      { id: 2, entity_type: "offer_request_message", entity: { user_id: 55, price: { amount: "15.0" }, status: 40, status_title: "Abgebrochen", current: true } },
+    ]), "77", other)).toBeNull();
+  });
+
   it("returns nothing for a chat without offers", () => {
     expect(openOfferIn(conv([{ id: 1, entity_type: "message", entity: { body: "Noch da?" } }]), "77", other)).toBeNull();
+  });
+});
+
+describe("favouriteFromNote", () => {
+  it("reads member and item from Vinted's notification", () => {
+    expect(favouriteFromNote({
+      id: "cc1e", body: "agustdnuts hat deinen Artikel Steppweste favorisiert.", subject_id: 10883892035,
+      link: "/items/10883892035/want_it/new?offering_id=295208712", updated_at: "2026-11-20T07:09:14+00:00",
+    })).toEqual({ externalId: "cc1e", vintedItemId: "10883892035", userId: "295208712", username: "agustdnuts", occurredAt: "2026-11-20T07:09:14+00:00" });
+    expect(favouriteFromNote({ id: 1, body: "x hat … favorisiert.", link: "vintedfr://messaging?item_id=5&user_id=7&portal=fr" }))
+      .toMatchObject({ vintedItemId: "5", userId: "7" });
+  });
+  it("skips notifications without a member", () => {
+    expect(favouriteFromNote({ id: 1, body: "Neuigkeiten", link: "/catalog" })).toBeNull();
   });
 });
